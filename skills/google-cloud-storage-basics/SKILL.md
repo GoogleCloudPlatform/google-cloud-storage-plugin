@@ -17,16 +17,11 @@ description: >-
   Bigtable, Firestore).
 license: Apache-2.0
 metadata:
-    version: v4
-    publisher: google
-    tags:
-      - gcs
-      - storage
-      - cloud-storage
-      - buckets
-      - objects
-    category: storage
-    support_tier: primary
+  version: v4
+  publisher: google
+  tags: "gcs, storage, cloud-storage, buckets, objects"
+  category: storage
+  support_tier: primary
 ---
 
 # Google Cloud Storage Basics
