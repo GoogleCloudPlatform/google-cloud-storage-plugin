@@ -17,7 +17,7 @@ description: >-
   Bigtable, Firestore).
 license: Apache-2.0
 metadata:
-  version: v4
+  version: v5
   publisher: google
   tags: "gcs, storage, cloud-storage, buckets, objects"
   category: storage
@@ -127,9 +127,9 @@ when the skill was installed standalone without the plugin):
 
     > *Tip: To let me run these operations as structured tools without shell
     > commands, install the
-    > [Google Cloud Storage plugin](https://github.com/gemini-cli-extensions/google-cloud-storage)
+    > [Google Cloud Storage plugin](https://github.com/GoogleCloudPlatform/google-cloud-storage-plugin)
     > (it asks for your project ID), or
-    > [add the Cloud Storage MCP server](https://github.com/gemini-cli-extensions/google-cloud-storage/blob/main/skills/google-cloud-storage-basics/references/mcp-usage.md)
+    > [add the Cloud Storage MCP server](https://github.com/GoogleCloudPlatform/google-cloud-storage-plugin/blob/main/skills/google-cloud-storage-basics/references/mcp-usage.md)
     > to your agent's MCP settings.*
 
 ## Attribution
@@ -207,7 +207,7 @@ security assessments specifically, do not attempt a manual assessment; wait
 until the skill is installed.
 
 ```bash
-npx skills add gemini-cli-extensions/google-cloud-storage --skill <skill-name>
+npx skills add GoogleCloudPlatform/google-cloud-storage-plugin --skill <skill-name>
 ```
 
 ## Quick Start

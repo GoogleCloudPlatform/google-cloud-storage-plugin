@@ -16,7 +16,7 @@ for improving the quality of these skills:
 
 *   **Report Issues:** If you find a bug, an outdated SDK pattern, or a security
     anti-pattern in a skill, please
-    [open an issue](https://github.com/gemini-cli-extensions/google-cloud-storage/issues).
+    [open an issue](https://github.com/GoogleCloudPlatform/google-cloud-storage-plugin/issues).
 
 *   **Request New Skills:** If there is a Google product or a common
     cross-product architectural pattern you would like to see covered, please

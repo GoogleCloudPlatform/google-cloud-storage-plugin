@@ -7,7 +7,7 @@
     "email": "gcs-agentic-ai-customer-support@google.com"
   },
   "homepage": "https://cloud.google.com/storage",
-  "repository": "https://github.com/gemini-cli-extensions/google-cloud-storage",
+  "repository": "https://github.com/GoogleCloudPlatform/google-cloud-storage-plugin",
   "license": "Apache-2.0",
   "skills": "./skills/",
   "userConfig": {

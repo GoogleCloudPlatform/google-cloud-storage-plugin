@@ -30,8 +30,9 @@ Several behaviors below are version-dependent; check the installed version with
 > mounting in this reference, use the `google-cloud-storage-fuse` skill (see the
 > "Routing to Specialized GCS Skills" section in SKILL.md). If it is not
 > installed, give the user this exact command (not the CLI's own plugin or
-> extension manager): `npx skills add gemini-cli-extensions/google-cloud-storage
-> --skill google-cloud-storage-fuse`
+> extension manager): `npx skills add
+> GoogleCloudPlatform/google-cloud-storage-plugin --skill
+> google-cloud-storage-fuse`
 
 ## Quick Start and Installation
 

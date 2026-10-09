@@ -142,7 +142,7 @@ full set of bucket and object operations.
 
 If you installed these skills individually (for example via `npx skills add` or
 from a skills-only collection), you can either install the full
-[Google Cloud Storage plugin](https://github.com/gemini-cli-extensions/google-cloud-storage)
+[Google Cloud Storage plugin](https://github.com/GoogleCloudPlatform/google-cloud-storage-plugin)
 (which registers the `cloud-storage` MCP Toolbox server automatically) or add
 the server directly to your MCP client using `npx` (Option A) or the standalone
 binary (Option B).

@@ -18,7 +18,7 @@ and infrastructure code generation.
 > [!IMPORTANT]
 > **We Want Your Feedback!** Please share your thoughts with us by
 > opening an issue on
-> [GitHub](https://github.com/gemini-cli-extensions/google-cloud-storage/issues).
+> [GitHub](https://github.com/GoogleCloudPlatform/google-cloud-storage-plugin/issues).
 > Your input is invaluable and helps us improve the project for everyone.
 
 ## Contents
@@ -40,7 +40,7 @@ and infrastructure code generation.
 ### Installing in Antigravity CLI
 
 ```bash
-agy plugin install https://github.com/gemini-cli-extensions/google-cloud-storage
+agy plugin install https://github.com/GoogleCloudPlatform/google-cloud-storage-plugin
 ```
 
 ### Installing in Claude Code
@@ -57,14 +57,14 @@ claude plugin install google-cloud-storage@claude-plugins-official
 Add this repository as a marketplace, then install from it:
 
 ```bash
-codex plugin marketplace add gemini-cli-extensions/google-cloud-storage
+codex plugin marketplace add GoogleCloudPlatform/google-cloud-storage-plugin
 codex plugin add google-cloud-storage@google-cloud-storage
 ```
 
 ### Installing in Gemini CLI
 
 ```bash
-gemini extensions install https://github.com/gemini-cli-extensions/google-cloud-storage
+gemini extensions install https://github.com/GoogleCloudPlatform/google-cloud-storage-plugin
 ```
 
 ### Installing Skills Only (Skills CLI)
@@ -75,14 +75,14 @@ To install the skills without the bundled
 [Skills CLI](https://github.com/vercel-labs/skills):
 
 ```bash
-npx skills add gemini-cli-extensions/google-cloud-storage
+npx skills add GoogleCloudPlatform/google-cloud-storage-plugin
 ```
 
 From the `npx` prompt, select the skills to install, or pass `--skill` to
 install a single skill directly:
 
 ```bash
-npx skills add gemini-cli-extensions/google-cloud-storage --skill google-cloud-storage-basics
+npx skills add GoogleCloudPlatform/google-cloud-storage-plugin --skill google-cloud-storage-basics
 ```
 
 ## Available Skills
@@ -428,13 +428,13 @@ on how to mitigate prompt injection attacks with Google Cloud MCP.
 
 If you need help or encounter issues with this plugin, search for existing
 issues or open a new one in the
-[GitHub Issue Tracker](https://github.com/gemini-cli-extensions/google-cloud-storage/issues).
+[GitHub Issue Tracker](https://github.com/GoogleCloudPlatform/google-cloud-storage-plugin/issues).
 
 ## Contributing
 
 We welcome contributions to improve this plugin. You can help by:
 
-*   [Reporting bugs or inaccuracies](https://github.com/gemini-cli-extensions/google-cloud-storage/issues)
+*   [Reporting bugs or inaccuracies](https://github.com/GoogleCloudPlatform/google-cloud-storage-plugin/issues)
     in the skill files.
 *   Suggesting new skills to add to this plugin by filing a feature request.
 
