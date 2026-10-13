@@ -1,12 +1,12 @@
 ---
 name: google-cloud-storage-basics
 description: >-
-  Stores, retrieves, and manages data as objects in Cloud Storage (Google
-  Cloud Storage, or GCS) buckets. Use when you need to interact with Cloud
-  Storage — set up a Storage MCP server (remote or local Toolbox), create or
-  configure buckets, upload, download, stream, or transfer data, organize
-  objects with folders, generate signed URLs, control access (IAM, ACLs,
-  public access prevention), set storage classes (Standard, Nearline,
+  Stores, retrieves, and manages data as objects in Cloud Storage on Google
+  Cloud (also known colloquially as GCS) buckets. Use when you need to interact
+  with Cloud Storage — set up a Storage MCP server (remote or local Toolbox),
+  create or configure buckets, upload, download, stream, or transfer data,
+  organize objects with folders, generate signed URLs, control access (IAM,
+  ACLs, public access prevention), set storage classes (Standard, Nearline,
   Coldline, Archive), manage lifecycle and cost, protect data (versioning,
   CMEK, retention, Bucket Lock, holds, soft delete), host static websites,
   trigger Pub/Sub notifications, mount buckets (gcsfuse), or optimize
@@ -17,22 +17,22 @@ description: >-
   Bigtable, Firestore).
 license: Apache-2.0
 metadata:
-  version: v5
+  version: v6
   publisher: google
   tags: "gcs, storage, cloud-storage, buckets, objects"
   category: storage
   support_tier: primary
 ---
 
-# Google Cloud Storage Basics
+# Cloud Storage Basics
 
-Google Cloud Storage (GCS) is a managed service for storing data as objects at
-any scale. You read and write whole objects rather than querying or updating
+Cloud Storage on Google Cloud is a managed service for storing data as objects
+at any scale. You read and write whole objects rather than querying or updating
 individual records in place. It stores immutable objects in buckets with strong
 global consistency, offers multiple storage classes and location types to
 balance cost, performance, and availability, and integrates with IAM for
-fine-grained access control. GCS serves workloads ranging from website content
-and backups to data lakes and high-throughput AI/ML training.
+fine-grained access control. Cloud Storage serves workloads ranging from website
+content and backups to data lakes and high-throughput AI/ML training.
 
 ## Tool Execution Priority (MCP Toolbox First)
 
@@ -163,10 +163,10 @@ version; it carries no user data.
     User-Agent: gcs-skills/1.0 (skill:google-cloud-storage-basics)
     ```
 
--   For client libraries, Terraform, and GCSFuse, use the user-agent options
-    shown in the corresponding references.
+-   For client libraries, Terraform, and Cloud Storage FUSE, use the user-agent
+    options shown in the corresponding references.
 
-## Routing to Specialized GCS Skills
+## Routing to Specialized Cloud Storage Skills
 
 This skill covers everyday Cloud Storage tasks. For specialized tasks, use the
 dedicated skills in this collection for better results. Check your available
@@ -185,8 +185,8 @@ skills and invoke the matching skill by name instead of improvising:
     deploying tuned mounts on GKE, Compute Engine, or Cloud Run, sizing file,
     stat, and list caches, tuning mount flags, ensuring safe ML checkpointing,
     or diagnosing slow or expensive mounts. The
-    [GCSFuse reference](references/gcsfuse.md) in this skill covers only basic
-    installation and mounting.
+    [Cloud Storage FUSE reference](references/gcsfuse.md) in this skill covers
+    only basic installation and mounting.
 
 -   **`google-cloud-storage-diagnostic`**: Troubleshooting 403 Permission Denied
     errors and diagnosing IAM policy bindings, ACLs, uniform bucket-level access
@@ -199,12 +199,13 @@ skills and invoke the matching skill by name instead of improvising:
     [Data Management](references/data-management.md)).
 
 If the matching skill is not installed, do not improvise. Provide the user with
-this exact command to install it (substituting the skill name), and use the
-skill after installation. Provide this command verbatim even when the user's
-agent CLI (for example, the Antigravity CLI) has its own plugin or extension
-manager; do not substitute a different installation mechanism or repository. For
-security assessments specifically, do not attempt a manual assessment; wait
-until the skill is installed.
+this exact command to install it (substituting the skill name). Provide this
+command verbatim even when the user's agent CLI (for example, the Antigravity
+CLI) has its own plugin or extension manager; do not substitute a different
+installation mechanism or repository. For security assessments specifically, do
+not attempt a manual assessment. Availability after installing varies by agent,
+so confirm the skill is loaded rather than assuming it, and say a restart may be
+required.
 
 ```bash
 npx skills add GoogleCloudPlatform/google-cloud-storage-plugin --skill <skill-name>
@@ -238,7 +239,7 @@ Toolbox (`cloud-storage`), read [MCP Usage](references/mcp-usage.md). When a
 
     For a production or workload-specific bucket, route to
     `google-cloud-storage-bucket-architect` before creating a bucket (see
-    [Routing to Specialized GCS Skills](#routing-to-specialized-gcs-skills)).
+    [Routing to Specialized Cloud Storage Skills](#routing-to-specialized-cloud-storage-skills)).
     The options below create a basic default bucket.
 
     Using MCP: call `cloud-storage:create_bucket` (for example with `name:
@@ -349,7 +350,7 @@ Toolbox (`cloud-storage`), read [MCP Usage](references/mcp-usage.md). When a
     Bucket, Rapid Cache (Anywhere Cache), and hierarchical namespace for AI/ML,
     analytics, and other performance-critical workloads.
 
--   [GCSFuse](references/gcsfuse.md): Installing Cloud Storage FUSE, mounting
-    buckets, file operations, POSIX semantics and limitations (locking, writes,
-    renames, consistency), and caching. For advanced tuning, deployment, and
-    diagnosis, route to the `google-cloud-storage-fuse` skill.
+-   [Cloud Storage FUSE](references/gcsfuse.md): Installing Cloud Storage FUSE,
+    mounting buckets, file operations, POSIX semantics and limitations (locking,
+    writes, renames, consistency), and caching. For advanced tuning, deployment,
+    and diagnosis, route to the `google-cloud-storage-fuse` skill.
