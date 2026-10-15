@@ -15,7 +15,7 @@ description: >-
   live outage, or non-GCS resources (Compute Engine, GKE, etc.).
 license: Apache-2.0
 metadata:
-    version: v3
+    version: v4
     publisher: google
     tags:
       - gcs
