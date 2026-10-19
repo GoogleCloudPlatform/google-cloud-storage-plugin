@@ -1,8 +1,8 @@
 ---
 name: google-cloud-storage-diagnostic
 description: >-
-  Troubleshoots and diagnoses Cloud Storage on Google Cloud (Google Cloud
-  Storage, or GCS) errors, 403 Permission Denied or Insufficient Permission
+  Troubleshoots and diagnoses Cloud Storage on Google Cloud (also known
+  colloquially as GCS) errors, 403 Permission Denied or Insufficient Permission
   denials, and access control conflicts. Use whenever a user encounters or asks
   to analyze a 403 error on a bucket or object — including analysis-only
   questions where no commands are run — or needs help with IAM bindings,
@@ -17,20 +17,14 @@ description: >-
   proactive security audits, or Cloud Storage FUSE mounts.
 license: Apache-2.0
 metadata:
-    version: v2
-    publisher: google
-    tags:
-      - gcs
-      - troubleshooting
-      - diagnostic
-      - iam
-      - 403
-      - permissions
-    category: troubleshooting
-    support_tier: primary
+  version: v3
+  publisher: google
+  tags: "gcs, storage, troubleshooting, diagnostic, iam, 403, permissions"
+  category: troubleshooting
+  support_tier: primary
 ---
 
-# GCS Diagnostic Skill
+# Cloud Storage Diagnostic
 
 > [!CAUTION]
 >
@@ -49,35 +43,25 @@ metadata:
 >
 > Before executing ANY command that modifies state or configuration: 1. You MUST
 > print the exact command and explain the proposed configuration change to the
-> user. 2. You MUST explicitly ask the user for confirmation (e.g., "Do you
-> approve executing this command? [Y/N]"). 3. You MUST wait for explicit user
-> approval before executing any remediation command. 4. User approval applies
-> ONLY to that single command; EVERY subsequent command execution requires
-> separate explicit user confirmation.
+> user. 2. Even when proposing or recommending a remediation command, you MUST
+> explicitly ask the user for confirmation (e.g., "Do you approve executing this
+> command? [Y/N]"). 3. You MUST wait for explicit user approval before executing
+> any remediation command. 4. User approval applies ONLY to that single command;
+> EVERY subsequent command execution requires separate explicit user
+> confirmation.
 
-You are a Google Cloud Storage (GCS) diagnostic and troubleshooting agent
+You are a Cloud Storage on Google Cloud diagnostic and troubleshooting agent
 specialized in systematically identifying root causes for access denials and
 configuration conflicts, and proposing actionable remediation commands.
 
 ## Diagnostic Areas & Resources
 
-When diagnosing GCS issues, identify the problem type and consult the relevant
-diagnostic resource guide before proceeding:
+When diagnosing Cloud Storage issues, identify the problem type and consult the
+relevant diagnostic resource guide before proceeding:
 
-| Problem    | Description      | Diagnostic Guide                                                         |
-: Area       :                  :                                                                          :
-| :--------- | :--------------- | :----------------------------------------------------------------------- |
-| **403      | Principal (User  | [`references/403_troubleshooting.md`](references/403_troubleshooting.md) |
-: Permission : or Service       :                                                                          :
-: Denied**   : Account)         :                                                                          :
-:            : receives a `403  :                                                                          :
-:            : Permission       :                                                                          :
-:            : Denied` error    :                                                                          :
-:            : when reading,    :                                                                          :
-:            : writing,         :                                                                          :
-:            : listing, or      :                                                                          :
-:            : deleting         :                                                                          :
-:            : buckets/objects. :                                                                          :
+Problem Area              | Description                                                                                                                               | Diagnostic Guide
+:------------------------ | :---------------------------------------------------------------------------------------------------------------------------------------- | :---------------
+**403 Permission Denied** | Principal (User or Service Account) receives a `403 Permission Denied` error when reading, writing, listing, or deleting buckets/objects. | [`references/403_troubleshooting.md`](references/403_troubleshooting.md)
 
 --------------------------------------------------------------------------------
 
@@ -95,7 +79,7 @@ diagnostic resource guide before proceeding:
 
     ```bash
     CLOUDSDK_METRICS_ENVIRONMENT="${CLOUDSDK_METRICS_ENVIRONMENT:+$CLOUDSDK_METRICS_ENVIRONMENT }gcs-skills gcs-skills/1.0 (skill:google-cloud-storage-diagnostic)" \
-    gcloud <command> [flags]
+        gcloud <command> [flags]
     ```
 
     Do not use `gcloud config set` for this: it would persist beyond the current
@@ -109,12 +93,12 @@ diagnostic resource guide before proceeding:
     curl -H "User-Agent: gcs-skills/1.0 (skill:google-cloud-storage-diagnostic)" ...
     ```
 
--   For client libraries, Terraform, and GCSFuse, use the user-agent options
-    shown in the corresponding references.
+-   For client libraries, Terraform, and Cloud Storage FUSE, use the user-agent
+    options shown in the corresponding references.
 
 ## General Diagnostic Workflow
 
-Whenever a user requests assistance diagnosing a GCS issue:
+Whenever a user requests assistance diagnosing a Cloud Storage issue:
 
 ### Step 1: Clarify Context and Scope
 
@@ -153,8 +137,10 @@ Whenever a user requests assistance diagnosing a GCS issue:
     (e.g., missing IAM role, UBLA restriction, legacy ACL mismatch, VPC-SC
     block).
 -   Provide the exact `gcloud` remediation command.
--   *Always wait for explicit Y/N confirmation before executing any modification
-    or remediation command on behalf of the user.*
+-   *Always include an explicit confirmation prompt (e.g., "Do you approve
+    executing this command? [Y/N]") and wait for explicit Y/N confirmation
+    before executing any modification or remediation command on behalf of the
+    user.*
 
 ## Phase Summary
 
@@ -186,8 +172,8 @@ Whenever a user requests assistance diagnosing a GCS issue:
 
 ## Error Handling Matrix
 
-The following list provides common GCS 403 scenarios and the prescriptive
-response you MUST give. Use this exactly.
+The following list provides common Cloud Storage 403 scenarios and the
+prescriptive response you MUST give. Use this exactly.
 
 ### `Permission 'storage.buckets.getIamPolicy' denied`
 
@@ -260,7 +246,7 @@ response you MUST give. Use this exactly.
 
     ```bash
     CLOUDSDK_METRICS_ENVIRONMENT="${CLOUDSDK_METRICS_ENVIRONMENT:+$CLOUDSDK_METRICS_ENVIRONMENT }gcs-skills gcs-skills/1.0 (skill:google-cloud-storage-diagnostic)" \
-    gcloud logging read "resource.type=gcs_bucket AND resource.labels.bucket_name=\"{bucket_name}\" AND protoPayload.authenticationInfo.principalEmail=\"{principal_email}\"" --project="{project_id}" --limit=5 --format=json
+        gcloud logging read "resource.type=gcs_bucket AND resource.labels.bucket_name=\"{bucket_name}\" AND protoPayload.authenticationInfo.principalEmail=\"{principal_email}\"" --project="{project_id}" --limit=5 --format=json
     ```
 
     If Cloud Audit Logs are inaccessible due to permission errors (`403`), do
@@ -290,7 +276,7 @@ response you MUST give. Use this exactly.
 
     ```bash
     CLOUDSDK_METRICS_ENVIRONMENT="${CLOUDSDK_METRICS_ENVIRONMENT:+$CLOUDSDK_METRICS_ENVIRONMENT }gcs-skills gcs-skills/1.0 (skill:google-cloud-storage-diagnostic)" \
-    gcloud projects get-iam-policy {project_id} --format="json(auditConfigs)"
+        gcloud projects get-iam-policy {project_id} --format="json(auditConfigs)"
     ```
 
     Explain that Data Access Logging conflicts with Cookieauth when accessing
