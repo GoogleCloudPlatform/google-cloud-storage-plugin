@@ -17,7 +17,7 @@ description: >-
   Bigtable, Firestore).
 license: Apache-2.0
 metadata:
-  version: v6
+  version: v7
   publisher: google
   tags: "gcs, storage, cloud-storage, buckets, objects"
   category: storage
@@ -58,7 +58,7 @@ individually in your agent's settings.
 Operation              | Tool                                  | Server
 :--------------------- | :------------------------------------ | :-----
 List buckets           | `cloud-storage:list_buckets`          | Both
-Bucket metadata        | `cloud-storage:get_bucket_metadata`   | Local
+Bucket metadata        | `cloud-storage:get_bucket_metadata`   | Both
 Bucket IAM policy      | `cloud-storage:get_bucket_iam_policy` | Local
 Create a basic bucket  | `cloud-storage:create_bucket`         | Both
 Delete an empty bucket | `cloud-storage:delete_bucket`         | Both
@@ -74,7 +74,7 @@ Move / rename object   | `cloud-storage:move_object`           | Local
 Delete an object       | `cloud-storage:delete_object`         | Both
 
 **Server:** *Local* is the local MCP Toolbox (14 tools), *Remote* is the
-Google-hosted remote server (8 tools), and *Both* means either server.
+Google-hosted remote server (9 tools), and *Both* means either server.
 
 -   `read_object` is capped at 8 MiB. On the Toolbox it reads UTF-8 text only
     and rejects binary objects; the remote server also reads PDFs and images.
