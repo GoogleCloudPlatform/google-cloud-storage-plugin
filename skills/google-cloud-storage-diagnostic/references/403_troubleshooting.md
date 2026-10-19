@@ -16,16 +16,33 @@ Google Cloud Storage (GCS) bucket or object. Follow the steps sequentially.
 Before checking IAM policies, check if the request falls into one of these edge
 cases:
 
--   **Signed URLs:** If the user is using a Signed URL, a 403 usually indicates
-    that the canonical string used to sign the request does not match the
-    incoming request headers (e.g., mismatched `Content-Type`), or the URL has
-    expired. Verify the signature generation.
+-   **Signed URLs:** If the user is using a Signed URL, a 403
+    (`SignatureDoesNotMatch`) usually indicates that the canonical string
+    (`String to sign`) expected by Cloud Storage does not match what the client
+    signed and sent, or the URL has expired. Compare the expected canonical
+    string returned in the 403 XML error response against the string constructed
+    by the client, checking for common signed URL mistakes such as missing
+    newlines, mismatched HTTP verbs or headers (`Content-Type`, `x-goog-*`), or
+    unescaped characters. Do not recommend granting additional IAM roles or
+    switching products for a signature mismatch.
 -   **Cookieauth (Browser Access):** Accessing `storage.cloud.google.com` URLs
-    in a browser uses cookie authentication. If the user has multiple Google
-    Accounts logged in, the browser may send the wrong identity cookie. Also,
-    having Data Access Logging enabled can conflict with Cookieauth and cause
-    consistent 403 errors in the browser. Advise testing in an Incognito window
-    or using the API/CLI (`gcloud`).
+    in a browser uses cookie authentication (`Cookieauth`). Having Data Access
+    Logging (`DATA_READ` / `DATA_WRITE` for `storage.googleapis.com`) enabled on
+    the project conflicts with Cookieauth and causes consistent 403 errors when
+    downloading objects via `storage.cloud.google.com` in the browser. Also, if
+    the user has multiple Google Accounts logged in, the browser may send the
+    wrong identity cookie. Inspect the bucket configuration/IAM policy and check
+    the project's audit log configuration using:
+
+    ```bash
+    CLOUDSDK_METRICS_ENVIRONMENT="${CLOUDSDK_METRICS_ENVIRONMENT:+$CLOUDSDK_METRICS_ENVIRONMENT }gcs-skills gcs-skills/1.0 (skill:google-cloud-storage-diagnostic)" \
+    gcloud projects get-iam-policy {project_id} --format="json(auditConfigs)"
+    ```
+
+    Advise accessing objects via `gcloud`, API endpoints
+    (`storage.googleapis.com`), or Signed URLs to avoid browser cookie
+    authentication limitations, testing in an Incognito window, or adjusting
+    Data Access Audit Logging if browser access is required.
 -   **Bucket IP Filtering / Firewalls:** Check if the bucket has IP filtering or
     Organization Policy restrictions blocking the caller's source IP address.
 -   **Sanctions / Territory Blocks:** Requests originating from embargoed or
@@ -421,8 +438,8 @@ bucket's local network filter.
     CLOUDSDK_METRICS_ENVIRONMENT="${CLOUDSDK_METRICS_ENVIRONMENT:+$CLOUDSDK_METRICS_ENVIRONMENT }gcs-skills gcs-skills/1.0 (skill:google-cloud-storage-diagnostic)" \
     gcloud storage buckets describe gs://{bucket_name} --format="json(ip_filter_config)" > current_filter.json
 
-    # 2. Add TARGET_IP_HERE/32 to the allowedIpCidrRanges list in the JSON above,
-    # save it to updated_filter.json, and apply:
+    # 2. Append TARGET_IP_HERE/32 to the existing allowedIpCidrRanges list in the JSON
+    # above (without clearing existing ranges), save it to ALLOWED_IPS.json, and apply:
     CLOUDSDK_METRICS_ENVIRONMENT="${CLOUDSDK_METRICS_ENVIRONMENT:+$CLOUDSDK_METRICS_ENVIRONMENT }gcs-skills gcs-skills/1.0 (skill:google-cloud-storage-diagnostic)" \
-    gcloud storage buckets update gs://{bucket_name} --ip-filter-file=updated_filter.json
+    gcloud storage buckets update gs://{bucket_name} --ip-filter-file=ALLOWED_IPS.json
     ```

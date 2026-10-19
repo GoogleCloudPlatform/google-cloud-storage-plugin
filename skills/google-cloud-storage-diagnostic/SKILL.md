@@ -1,14 +1,23 @@
 ---
 name: google-cloud-storage-diagnostic
 description: >-
-  Troubleshoots and diagnoses Google Cloud Storage (GCS) errors, permission
-  denials, and access control issues. Use when a user encounters a
-  403 Permission Denied error on a Google Cloud bucket or object, or needs help
-  diagnosing and resolving GCS IAM bindings, ACLs, UBLA, or service agent
-  configurations.
+  Troubleshoots and diagnoses Cloud Storage on Google Cloud (Google Cloud
+  Storage, or GCS) errors, 403 Permission Denied or Insufficient Permission
+  denials, and access control conflicts. Use whenever a user encounters or asks
+  to analyze a 403 error on a bucket or object — including analysis-only
+  questions where no commands are run — or needs help with IAM bindings,
+  fine-grained ACLs, Uniform Bucket-Level Access (UBLA), getIamPolicy
+  inspection denials and least-privilege inspection roles, browser
+  storage.cloud.google.com Cookieauth and Data Access Audit Logging conflicts,
+  Signed URL SignatureDoesNotMatch errors, VPC Service Controls (VPC-SC)
+  perimeters, explicit IAM Deny policies, Bucket IP Filtering, Requester Pays,
+  Retention Policy locks, Compute Engine VM access scopes, Application Default
+  Credentials (ADC) mismatches, recursive delete permissions, or recreated
+  service accounts. Don't use for creating buckets, routine uploads/downloads,
+  proactive security audits, or Cloud Storage FUSE mounts.
 license: Apache-2.0
 metadata:
-    version: v1
+    version: v2
     publisher: google
     tags:
       - gcs
@@ -263,9 +272,33 @@ response you MUST give. Use this exactly.
     Logs.
 
     **Remediation:** Do not write ad-hoc CLI commands. Refer to Step 8 in
-    `references/403_troubleshooting.md` for proper instructions to prepare and
-    apply an `ALLOWED_IPS.json` overriding configuration via the `gcloud storage
-    buckets update` command.
+    `references/403_troubleshooting.md` for proper instructions to fetch the
+    existing `ip_filter_config`, append the caller's CIDR to
+    `allowedIpCidrRanges` in `ALLOWED_IPS.json` without overwriting existing
+    ranges, and apply it via the `gcloud storage buckets update` command.
+
+### `403 Permission Denied` on `storage.cloud.google.com` in Browser (Cookieauth)
+
+-   **Cause:** Browser downloads via `https://storage.cloud.google.com/...` use
+    Google Account cookie authentication (`Cookieauth`). Having Data Access
+    Audit Logging (`DATA_READ` / `DATA_WRITE` for `storage.googleapis.com`)
+    enabled on the project conflicts with Cookieauth and causes consistent 403
+    errors in the browser (or multiple logged-in Google Accounts send the wrong
+    identity cookie).
+-   **Fix:** Inspect the bucket IAM policy/configuration and check the project's
+    audit log configuration using:
+
+    ```bash
+    CLOUDSDK_METRICS_ENVIRONMENT="${CLOUDSDK_METRICS_ENVIRONMENT:+$CLOUDSDK_METRICS_ENVIRONMENT }gcs-skills gcs-skills/1.0 (skill:google-cloud-storage-diagnostic)" \
+    gcloud projects get-iam-policy {project_id} --format="json(auditConfigs)"
+    ```
+
+    Explain that Data Access Logging conflicts with Cookieauth when accessing
+    objects via `storage.cloud.google.com` in the browser. Advise accessing
+    objects via `gcloud`, API endpoints (`storage.googleapis.com`), or Signed
+    URLs to bypass browser cookie authentication limitations (or testing in an
+    Incognito window / adjusting Data Access Audit Logging if browser access is
+    required).
 
 ### `404 Not Found` or `Bucket does not exist`
 
