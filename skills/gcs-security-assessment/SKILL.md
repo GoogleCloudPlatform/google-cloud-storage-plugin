@@ -15,7 +15,7 @@ description: >-
   live outage, or non-GCS resources (Compute Engine, GKE, etc.).
 license: Apache-2.0
 metadata:
-    version: v4
+    version: v5
     publisher: google
     tags: "gcs, security, compliance, saif"
     category: security
