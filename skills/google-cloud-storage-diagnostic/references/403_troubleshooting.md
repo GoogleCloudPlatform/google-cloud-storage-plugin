@@ -9,6 +9,19 @@ Cloud Storage on Google Cloud bucket or object. Follow the steps sequentially.
 > **Always verify whether Uniform Bucket-Level Access (UBLA) is enabled before
 > checking Object ACLs.** If UBLA is enabled, object-level ACLs are ignored.
 
+## Table of Contents
+
+Section                                                                                                                            | Line Range
+:--------------------------------------------------------------------------------------------------------------------------------- | :---------
+[Step 1: Check for Common Edge Cases First](#step-1-check-for-common-edge-cases-first)                                             | Lines 27-97
+[Step 2: Check IAM Bindings (Bucket and Project Level)](#step-2-check-iam-bindings-bucket-and-project-level)                       | Lines 99-167
+[Step 3: Check Legacy ACLs and Uniform Bucket-Level Access (UBLA)](#step-3-check-legacy-acls-and-uniform-bucket-level-access-ubla) | Lines 169-213
+[Step 4: Validate Service Agents](#step-4-validate-service-agents)                                                                 | Lines 215-222
+[Step 5: Check VPC Service Controls (VPC-SC)](#step-5-check-vpc-service-controls-vpc-sc)                                           | Lines 224-241
+[Step 6: Propose Remediation and Re-Verify](#step-6-propose-remediation-and-re-verify)                                             | Lines 243-284
+[Step 7: Check Audit Logs](#step-7-check-audit-logs)                                                                               | Lines 286-327
+[Step 8: Check Advanced Non-IAM Storage Denials](#step-8-check-advanced-non-iam-storage-denials)                                   | Lines 329-467
+
 --------------------------------------------------------------------------------
 
 ## Step 1: Check for Common Edge Cases First
@@ -153,7 +166,7 @@ CLOUDSDK_METRICS_ENVIRONMENT="${CLOUDSDK_METRICS_ENVIRONMENT:+$CLOUDSDK_METRICS_
 
 --------------------------------------------------------------------------------
 
-## Step 3: Check Legacy ACLs & Uniform Bucket-Level Access (UBLA)
+## Step 3: Check Legacy ACLs and Uniform Bucket-Level Access (UBLA)
 
 Check if Uniform Bucket-Level Access (UBLA) is enabled:
 
@@ -285,15 +298,25 @@ CLOUDSDK_METRICS_ENVIRONMENT="${CLOUDSDK_METRICS_ENVIRONMENT:+$CLOUDSDK_METRICS_
 
 ### What to do if Audit Logs are Inaccessible, Excluded, or Empty
 
-> **CRITICAL BUCKET LOG SCOPING RULE**: Always ensure log queries filter
-> explicitly by `resource.labels.bucket_name="{bucket_name}"`. Never use audit
-> log events from *other* buckets in the project to infer the root cause of
-> access denials on the target bucket. If `gcloud logging read` returns `403
-> Permission Denied`, `Project not found or deleted`, or an empty array `[]` for
-> `{bucket_name}` (due to missing `roles/logging.viewer` permissions, disabled
-> audit logs, or log exclusions), explicitly inform the user that you lack log
-> visibility for this target bucket and proceed to **Remediation in Log-Denied
-> Scenarios** below.
+> **CRITICAL BUCKET LOG SCOPING & DATA ACCESS VISIBILITY RULE**: Always ensure
+> log queries filter explicitly by
+> `resource.labels.bucket_name="{bucket_name}"`. Never use audit log events from
+> *other* buckets in the project to infer the root cause of access denials on
+> the target bucket. Note that **Admin Activity** logs
+> (`cloudaudit.googleapis.com%2Factivity`, e.g., `storage.buckets.create`) are
+> enabled by default, whereas **Data Access** logs
+> (`cloudaudit.googleapis.com%2Fdata_access`, where `storage.objects.*`,
+> `storage.buckets.get`, and IP filter denials are recorded) are disabled by
+> default, often excluded by sinks, or restricted to
+> `roles/logging.privateLogViewer`. If `gcloud logging read` returns `403
+> Permission Denied`, `Project not found or deleted`, an empty array `[]`, or
+> **only unrelated Admin Activity entries with zero Data Access entries for the
+> failing read/write operation**, explicitly inform the user that they **lack
+> visibility into the Cloud Audit Logs** (due to permissions, disabled Data
+> Access logging, or log exclusions) and therefore **cannot definitively
+> diagnose advanced network denials**, then proceed directly to **Remediation in
+> Log-Denied Scenarios** below rather than treating missing Data Access logs or
+> old Admin Activity entries as proof that network controls are absent.
 
 **Remediation in Log-Denied Scenarios:** Explicitly suggest to the user that
 they might be hitting an advanced network restriction (such as Bucket-Level IP

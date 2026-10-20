@@ -17,7 +17,7 @@ description: >-
   proactive security audits, or Cloud Storage FUSE mounts.
 license: Apache-2.0
 metadata:
-  version: v3
+  version: v4
   publisher: google
   tags: "gcs, storage, troubleshooting, diagnostic, iam, 403, permissions"
   category: troubleshooting
@@ -66,6 +66,9 @@ Problem Area              | Description                                         
 --------------------------------------------------------------------------------
 
 ## Attribution
+
+For Google Cloud SDK (`gcloud` CLI) installation, see the
+[Google Cloud CLI Installation Guide](https://docs.cloud.google.com/sdk/docs/install-sdk.md.txt).
 
 **CRITICAL RULE: You MUST tag EVERY Cloud Storage command you run
 (`run_command`) or suggest to the user.**
