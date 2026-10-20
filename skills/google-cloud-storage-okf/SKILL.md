@@ -18,14 +18,7 @@ license: Apache-2.0
 metadata:
   version: v2
   publisher: google
-  tags:
-    - gcs
-    - okf
-    - search
-    - semantic-search
-    - open-knowledge-format
-    - progressive-disclosure
-    - mcp
+  tags: "gcs, okf, search, semantic-search, open-knowledge-format, progressive-disclosure, mcp"
   category: storage
   support_tier: primary
 ---

@@ -19,12 +19,7 @@ license: Apache-2.0
 metadata:
     version: v2
     publisher: google
-    tags:
-      - gcs
-      - gcsfuse
-      - fuse
-      - mount
-      - file-system
+    tags: "gcs, gcsfuse, fuse, mount, file-system"
     category: storage
     support_tier: primary
 ---
