@@ -17,7 +17,7 @@ description: >-
   proactive security audits, or Cloud Storage FUSE mounts.
 license: Apache-2.0
 metadata:
-  version: v4
+  version: v5
   publisher: google
   tags: "gcs, storage, troubleshooting, diagnostic, iam, 403, permissions"
   category: troubleshooting
@@ -252,13 +252,18 @@ prescriptive response you MUST give. Use this exactly.
         gcloud logging read "resource.type=gcs_bucket AND resource.labels.bucket_name=\"{bucket_name}\" AND protoPayload.authenticationInfo.principalEmail=\"{principal_email}\"" --project="{project_id}" --limit=5 --format=json
     ```
 
-    If Cloud Audit Logs are inaccessible due to permission errors (`403`), do
-    not loop or retry. Immediately halt technical diagnosis, inform the user you
-    lack visibility into advanced network denials, and direct them to contact a
-    Project/Organization Administrator to check the logs. If `gcloud logging
-    read` returns an empty array `[]`, Data Access Audit Logs are likely not
-    enabled for Cloud Storage; instruct the user to turn on Data Access Audit
-    Logs.
+    If `gcloud logging read` returns permission errors (`403`), `Project not
+    found or deleted`, an empty array `[]`, or only unrelated Admin Activity
+    entries (`cloudaudit.googleapis.com%2Factivity`) with zero Data Access
+    entries (`cloudaudit.googleapis.com%2Fdata_access`) for the failing
+    operation, do not loop or retry. Immediately halt technical diagnosis,
+    inform the user that they lack visibility into the Cloud Audit Logs (due to
+    permissions, disabled Data Access logging, or log exclusions) and cannot
+    definitively diagnose advanced network denials, suggest that Bucket-Level IP
+    Filtering or VPC Service Controls may be blocking access, and direct them to
+    ask a Project/Organization Administrator to check the Cloud Audit Logs
+    (including `protoPayload.status.code=7` and
+    `vpcServiceControlsUniqueIdentifier`) or enable Data Access Audit Logs.
 
     **Remediation:** Do not write ad-hoc CLI commands. Refer to Step 8 in
     `references/403_troubleshooting.md` for proper instructions to fetch the
