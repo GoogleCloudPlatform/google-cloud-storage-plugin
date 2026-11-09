@@ -143,6 +143,11 @@ _FIX_PERMISSION_WRITE = (
     "The authenticated principal needs storage.objects.update on the object"
     " to write OKF metadata."
 )
+_FIX_QUOTA_PROJECT = (
+    "The ADC quota project denies serviceusage.services.use. Run:"
+    " gcloud auth application-default login --disable-quota-project, or"
+    " gcloud auth application-default set-quota-project <project-id>."
+)
 
 
 GCS_CONTEXT_MAX_VALUE_BYTES = 256
@@ -245,12 +250,19 @@ def _format_gcs_error(
         f" failed (concurrent modification): {msg}"
     )
   if isinstance(error, gcs_exceptions.Unauthorized):
+    if hasattr(_get_storage_client, "cache_clear"):
+      _get_storage_client.cache_clear()
     return (
         f"Unauthorized accessing '{gs_uri}': {str(error)}\n"
         f"Fix: Credentials were rejected. {_FIX_CREDENTIALS}"
     )
   if isinstance(error, gcs_exceptions.Forbidden):
-    fix = _FIX_PERMISSION_WRITE if writing else _FIX_PERMISSION_READ
+    if "serviceusage.services.use" in str(error):
+      if hasattr(_get_storage_client, "cache_clear"):
+        _get_storage_client.cache_clear()
+      fix = _FIX_QUOTA_PROJECT
+    else:
+      fix = _FIX_PERMISSION_WRITE if writing else _FIX_PERMISSION_READ
     return f"Permission Denied accessing '{gs_uri}': {str(error)}\nFix: {fix}"
   fix = _environment_fix(error)
   if fix:
@@ -262,6 +274,8 @@ def _format_gcs_error(
 def _environment_fix(error: Exception) -> str | None:
   """Returns the remedy when `error` means the caller's environment is not set up."""
   if isinstance(error, auth_exceptions.RefreshError):
+    if hasattr(_get_storage_client, "cache_clear"):
+      _get_storage_client.cache_clear()
     return f"Credentials expired or were revoked. {_FIX_CREDENTIALS}"
   if isinstance(error, auth_exceptions.DefaultCredentialsError):
     return f"Application Default Credentials not found. {_FIX_CREDENTIALS}"
@@ -270,6 +284,25 @@ def _environment_fix(error: Exception) -> str | None:
   if isinstance(error, OSError) and "project" in str(error).lower():
     return _FIX_PROJECT
   return None
+
+
+def _chunk_utf8_bytes(encoded: bytes, max_chunk_bytes: int) -> list[str]:
+  """Splits valid UTF-8 `encoded` bytes into strings of <= `max_chunk_bytes`."""
+  if max_chunk_bytes < 4:
+    raise ValueError("max_chunk_bytes must be at least 4.")
+  chunks: list[str] = []
+  start = 0
+  total_len = len(encoded)
+  while start < total_len:
+    end = min(start + max_chunk_bytes, total_len)
+    if end < total_len:
+      while end > start and (encoded[end] & 0xC0) == 0x80:
+        end -= 1
+      if end == start:
+        end = min(start + max_chunk_bytes, total_len)
+    chunks.append(encoded[start:end].decode("utf-8"))
+    start = end
+  return chunks
 
 
 def _get_blob_contexts(blob: storage.Blob) -> dict[str, str]:
@@ -717,12 +750,7 @@ def write_okf(
   if len(summary_bytes) <= GCS_CONTEXT_SAFE_VALUE_LIMIT:
     context_map["okf.sum"] = summary
   else:
-    summary_chunks = [
-        summary_bytes[i : i + OKF_SUMMARY_CHUNK_SIZE].decode(
-            "utf-8", errors="ignore"
-        )
-        for i in range(0, len(summary_bytes), OKF_SUMMARY_CHUNK_SIZE)
-    ]
+    summary_chunks = _chunk_utf8_bytes(summary_bytes, OKF_SUMMARY_CHUNK_SIZE)
     context_map["okf.sum_chunks"] = str(len(summary_chunks))
     for i, s_chunk in enumerate(summary_chunks):
       context_map[f"okf.sum.{i:03d}"] = s_chunk

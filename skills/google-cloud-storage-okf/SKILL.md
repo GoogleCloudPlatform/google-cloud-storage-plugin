@@ -128,9 +128,9 @@ session and no OKF work is possible.
 ### Tool Availability Gate
 
 **Before the first OKF step of any task, you MUST confirm that the MCP tools
-`peek`, `list_regions`, `expand`, and `write_okf` are all present in your tool
-list.** They may carry a harness-specific server-name prefix; a prefixed name
-counts as present.
+`peek`, `list_regions`, `expand`, and `write_okf` are all present** (either as
+direct or server-prefixed tools, or under `<mcp_servers>` as lazy-loaded MCP
+tools invoked via `call_mcp_tool` — both count as present).
 
 -   **All four present**: proceed with the OKF workflow.
 -   **Any one missing**: do NOT start the workflow. Tell the user the server is
@@ -188,23 +188,22 @@ every OKF call goes through MCP.
     where that is.
 
 If the client reports that the server failed to connect, run the command from
-step 4 by hand and read the traceback; a missing dependency or an incomplete
-install shows up there directly.
+step 4 by hand and read the traceback for missing dependencies.
 
 ### Credential, Project, and Permission Errors
 
 If any OKF tool returns an error about credentials, a missing project (for
-example `Project was not passed and could not be determined from the
-environment`), or permission denied (401 or 403), the environment is not set up,
-not the request. Relay the error verbatim together with the matching fix from
-step 3 and **STOP**:
+example
+`Project was not passed and could not be determined from the environment`), or
+permission denied (401 or 403), the environment is not set up, not the request.
+Relay the error and its `Fix:` line verbatim and **STOP**:
 
 -   Missing or expired credentials: `gcloud auth application-default login`.
 -   Missing project: `gcloud config set project <project-id>`, or the `env`
     block in step 4.
--   Permission denied: the authenticated principal needs read access to the
-    object, and `storage.objects.update` for `write_okf`; ask the user to grant
-    it.
+-   Permission denied: follow `Fix:` (`--disable-quota-project` or
+    `set-quota-project` for `serviceusage.services.use`, or grant
+    `storage.objects.get` / `storage.objects.update` on the object).
 
 Do **NOT** change the user's gcloud configuration or credentials yourself, do
 NOT guess a project, and do NOT retry the operation through `gcloud storage`,
