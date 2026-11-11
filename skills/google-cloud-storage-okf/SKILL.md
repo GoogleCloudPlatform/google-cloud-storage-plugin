@@ -16,7 +16,7 @@ description: >-
   exceed window limits.
 license: Apache-2.0
 metadata:
-  version: v2
+  version: v3
   publisher: google
   tags: "gcs, okf, search, semantic-search, open-knowledge-format, progressive-disclosure, mcp"
   category: storage
@@ -491,7 +491,7 @@ CLOUDSDK_METRICS_ENVIRONMENT="gcs-skills gcs-skills/1.0 (skill:google-cloud-stor
         entries (limits an object to ~45–50 OKF regions maximum).
     -   Hard total byte limit per GCS object: `25,600` bytes across all Object
         Context keys.
-    -   Hard limit per Object Context value: `256` bytes (compression & fallback
+    -   Hard limit per Object Context value: `256` bytes (encoding & fallback
         truncation are handled automatically by `write_okf`).
 -   **Detect Stale Indices**: If `peek` or `list_regions` returns a `Stale OKF
     index` warning (indicating the underlying blob generation changed since

@@ -8,23 +8,20 @@ A **Region** is a contiguous, semantically cohesive segment of a GCS object
 stored in GCS metadata, allowing LLMs to perform targeted byte-range reads
 (`expand`) without loading or processing the full file.
 
-1. Self-Contained Region Index Encoding & Compression Architecture:
+1. Self-Contained Region Index Encoding Architecture:
    - The underlying GCS object data remains completely untouched—we are NOT
      splitting or creating separate GCS files. Instead, each region index
      descriptor (a JSON object containing byte boundaries, titles, and keywords)
-     is individually serialized to JSON, Gzip-compressed, Base64-encoded, and
+     is individually serialized to compact JSON, Base64-encoded, and
      saved to a dedicated GCS Object Context key (`okf.r.000`, `okf.r.001`, ...)
      on the original blob itself.
-   - **Compression Density**: Gzip compression packs 300–600+ bytes of rich raw
-     JSON metadata into <150 Base64 bytes, multiplying effective storage per
-     key within the GCS 256-byte per-value hard limit.
-   - **Airtight Semantic Truncation (Pre-Compression)**: Truncation is never
-     applied to raw compressed byte streams (which would corrupt the archive).
+   - **Airtight Semantic Truncation (Pre-Encoding)**: Truncation is never
+     applied to raw encoded byte streams (which would corrupt the JSON).
      Instead, if the encoded payload exceeds the 250-byte safe threshold,
      fallback truncation trims the underlying Python dictionary fields
-     (keywords, title length, id) *before* re-compressing, strictly guaranteeing
+     (keywords, title length, id) *before* re-encoding, strictly guaranteeing
      that the resulting Base64 string is <= 256 bytes while remaining a 100%
-     valid, decompressable Gzip archive.
+     valid JSON object.
    - **Failure Domain Isolation**: If a single region key fails to write or
      becomes corrupted, the rest of the OKF index remains valid (avoiding
      multi-key manifest splicing risks).
@@ -158,6 +155,9 @@ OKF_SUMMARY_CHUNK_SIZE = 200
 OKF_KEYWORD_TRUNCATION_LIMIT = 3
 OKF_TITLE_TRUNCATION_LIMIT = 50
 STALE_INDEX_PREFIX = "Stale OKF index:"
+# Leading bytes of a gzip stream. Regions indexed before gzip was removed are
+# still gzip-compressed, so `list_regions` decompresses them for compatibility.
+_GZIP_MAGIC = b"\x1f\x8b"
 
 
 def _check_staleness_warning(
@@ -482,7 +482,7 @@ def peek(gs_uri: str) -> str:
 
 
 def list_regions(gs_uri: str) -> str:
-  """Returns the Tier 1 table of contents (TOC) from compressed region object contexts.
+  """Returns the Tier 1 table of contents (TOC) from region object contexts.
 
   Args:
     gs_uri: The target Google Cloud Storage URI.
@@ -531,14 +531,15 @@ def list_regions(gs_uri: str) -> str:
       padding = len(clean_b64) % 4
       if padding:
         clean_b64 += "=" * (4 - padding)
-      decompressed_bytes = gzip.decompress(base64.b64decode(clean_b64))
-      reg_obj = json.loads(decompressed_bytes.decode("utf-8"))
+      decoded_bytes = base64.b64decode(clean_b64)
+      if decoded_bytes.startswith(_GZIP_MAGIC):
+        decoded_bytes = gzip.decompress(decoded_bytes)
+      reg_obj = json.loads(decoded_bytes.decode("utf-8"))
       regions.append(reg_obj)
     except Exception as e:  # pylint: disable=broad-exception-caught
       return json.dumps({
           "error": (
-              f"Corrupted region index: Failed to decompress region '{k}':"
-              f" {str(e)}"
+              f"Corrupted region index: Failed to decode region '{k}': {str(e)}"
           ),
           "regions": [],
       })
@@ -601,16 +602,15 @@ def write_okf(
     regions: Sequence[Mapping[str, Any]],
     created_at: str = "",
 ) -> str:
-  """Writes the OKF manifest to GCS Object Contexts using compressed keys.
+  """Writes the OKF manifest to GCS Object Contexts using encoded keys.
 
-  Compression & Concurrency Architecture:
-    - Encodes each region descriptor as base64(gzip(json)), compressing
-      300-600+ bytes of metadata to fit comfortably within the GCS 256-byte
-      per-value limit.
+  Encoding & Concurrency Architecture:
+    - Encodes each region descriptor as base64(json) to fit within the GCS
+      256-byte per-value limit.
     - If an encoded region payload exceeds 250 bytes, semantic truncation is
       applied to the underlying Python dictionary (trimming keywords, title,
-      or ID) before re-compressing, guaranteeing valid, decompressable Gzip
-      archives under 256 bytes without corrupting byte streams.
+      or ID) before re-encoding, guaranteeing valid JSON payloads under 256
+      bytes without corrupting byte streams.
     - Uses GCS Optimistic Concurrency Control (OCC) by passing
       `if_generation_match=blob.generation` to `blob.patch()`, atomically
       preventing write race conditions if the object was replaced or modified
@@ -734,15 +734,13 @@ def write_okf(
   if getattr(blob, "generation", None) is not None:
     context_map["okf.src_generation"] = str(blob.generation)
 
-  # Helper function to encode a region dictionary to base64(gzip(json))
+  # Helper function to encode a region dictionary to base64(json)
   # Uses urlsafe_b64encode because GCS Object Context validation forbids
   # single quotes ('), double quotes ("), backslashes (\), and forward
   # slashes (/).
   def _encode_region(reg_dict: dict[str, Any]) -> str:
     val_json = json.dumps(reg_dict, separators=(",", ":"))
-    return base64.urlsafe_b64encode(
-        gzip.compress(val_json.encode("utf-8"))
-    ).decode("utf-8")
+    return base64.urlsafe_b64encode(val_json.encode("utf-8")).decode("utf-8")
 
   # Store summary (single key if <= GCS_CONTEXT_SAFE_VALUE_LIMIT chars,
   # or chunked if longer)
@@ -755,7 +753,7 @@ def write_okf(
     for i, s_chunk in enumerate(summary_chunks):
       context_map[f"okf.sum.{i:03d}"] = s_chunk
 
-  # Build self-contained compressed region key-value pairs
+  # Build self-contained encoded region key-value pairs
   # (okf.r.000, okf.r.001, ...)
   context_map["okf.region_count"] = str(len(regions))
   for i, reg in enumerate(regions):
