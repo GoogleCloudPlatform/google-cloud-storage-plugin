@@ -67,13 +67,15 @@ stored in GCS metadata, allowing LLMs to perform targeted byte-range reads
 """
 
 import base64
+from collections.abc import Mapping, Sequence
 import datetime
 import functools
 import gzip
 import importlib
 import json
 import os
-from typing import Any, Mapping, Sequence
+from typing import Any
+import unicodedata
 
 from google.api_core import client_info
 from google.api_core import exceptions as gcs_exceptions
@@ -158,6 +160,7 @@ STALE_INDEX_PREFIX = "Stale OKF index:"
 # Leading bytes of a gzip stream. Regions indexed before gzip was removed are
 # still gzip-compressed, so `list_regions` decompresses them for compatibility.
 _GZIP_MAGIC = b"\x1f\x8b"
+_FORBIDDEN_CONTEXT_CHARS = frozenset({"'", '"', "\\", "/"})
 
 
 def _check_staleness_warning(
@@ -286,22 +289,97 @@ def _environment_fix(error: Exception) -> str | None:
   return None
 
 
-def _chunk_utf8_bytes(encoded: bytes, max_chunk_bytes: int) -> list[str]:
-  """Splits valid UTF-8 `encoded` bytes into strings of <= `max_chunk_bytes`."""
+def _is_gcs_alnum_start(text: str) -> bool:
+  """Returns whether `text` begins with a GCS-valid Unicode letter or digit."""
+  return bool(text) and unicodedata.category(text[0])[0] in ("L", "N")
+
+
+def _is_interchange_valid_char(ch: str) -> bool:
+  """Returns whether `ch` passes GCS `UniLib::IsInterchangeValid` rules."""
+  cp = ord(ch)
+  if cp <= 0x1F and ch not in ("\t", "\n", "\x0c", "\r"):
+    return False
+  if 0x7F <= cp <= 0x9F:
+    return False
+  if 0xFDD0 <= cp <= 0xFDEF or (cp & 0xFFFE) == 0xFFFE:
+    return False
+  return True
+
+
+def _validate_gcs_context_value(value: str, field_name: str) -> str | None:
+  """Returns an error string if `value` violates GCS context rules, else None."""
+  if not isinstance(value, str) or not value:
+    return (
+        f"Invalid {field_name}: Must be a non-empty string starting with a"
+        " letter or digit."
+    )
+  try:
+    value.encode("utf-8")
+  except UnicodeEncodeError:
+    return f"Invalid {field_name}: Must be a valid UTF-8 string."
+  for ch in value:
+    if not _is_interchange_valid_char(ch):
+      return (
+          f"Invalid {field_name}: Contains disallowed control or noncharacter"
+          f" code point {ch!r}."
+      )
+  if not _is_gcs_alnum_start(value):
+    return (
+        f"Invalid {field_name}: Must start with an alphanumeric character"
+        f" (letter or digit), got {value[0]!r}."
+    )
+  bad_chars = sorted(ch for ch in _FORBIDDEN_CONTEXT_CHARS if ch in value)
+  if bad_chars:
+    joined = ", ".join(repr(ch) for ch in bad_chars)
+    return (
+        f"Invalid {field_name}: GCS Object Context values cannot contain"
+        " single quotes ('), double quotes (\"), backslashes (\\), or forward"
+        f" slashes (/); found {joined}. Reword without slashes or quotes."
+    )
+  return None
+
+
+def _chunk_summary_for_gcs(
+    summary: str, max_chunk_bytes: int
+) -> list[str] | None:
+  """Splits `summary` into <= `max_chunk_bytes` chunks starting with L/N.
+
+  Args:
+    summary: Valid UTF-8 summary text string to split across context values.
+    max_chunk_bytes: Maximum UTF-8 byte length per chunk (must be >= 4).
+
+  Returns:
+    Ordered list of summary chunks where every chunk begins with a Unicode
+    letter or digit, or `None` if `summary` is non-empty and cannot be split
+    such that every chunk starts with a letter or digit.
+  """
   if max_chunk_bytes < 4:
     raise ValueError("max_chunk_bytes must be at least 4.")
+  if not summary:
+    return []
+  if not _is_gcs_alnum_start(summary):
+    return None
   chunks: list[str] = []
-  start = 0
-  total_len = len(encoded)
-  while start < total_len:
-    end = min(start + max_chunk_bytes, total_len)
-    if end < total_len:
-      while end > start and (encoded[end] & 0xC0) == 0x80:
-        end -= 1
-      if end == start:
-        end = min(start + max_chunk_bytes, total_len)
-    chunks.append(encoded[start:end].decode("utf-8"))
-    start = end
+  idx = 0
+  total_chars = len(summary)
+  while idx < total_chars:
+    size = 0
+    end = idx
+    last_alnum_split = 0
+    while end < total_chars:
+      ch_bytes = len(summary[end].encode("utf-8"))
+      if size + ch_bytes > max_chunk_bytes:
+        break
+      size += ch_bytes
+      end += 1
+      if end < total_chars and _is_gcs_alnum_start(summary[end]):
+        last_alnum_split = end
+    if end < total_chars and not _is_gcs_alnum_start(summary[end]):
+      if not last_alnum_split:
+        return None
+      end = last_alnum_split
+    chunks.append(summary[idx:end])
+    idx = end
   return chunks
 
 
@@ -620,14 +698,44 @@ def write_okf(
 
   Args:
     gs_uri: The target Google Cloud Storage URI.
-    summary: The Tier 0 OKF summary.
+    summary: The Tier 0 OKF summary. Must be non-empty, start with a letter or
+      digit, and omit single quotes, double quotes, backslashes, and forward
+      slashes.
     regions: The list of OKF regions (max ~45-50 regions per object).
-    created_at: Optional creation timestamp (defaults to UTC ISO 8601 if empty).
+    created_at: Optional creation timestamp (defaults to UTC ISO 8601 if empty;
+      validated against GCS Object Context rules when provided).
 
   Returns:
-    Status message string confirming write or detailing capacity/precondition
-    errors.
+    Status message string confirming write or detailing validation, capacity, or
+    precondition errors.
   """
+
+  summary_err = _validate_gcs_context_value(summary, "summary")
+  if summary_err:
+    return summary_err
+
+  summary_bytes = summary.encode("utf-8")
+  summary_chunks: list[str] | None = None
+  if len(summary_bytes) > GCS_CONTEXT_SAFE_VALUE_LIMIT:
+    summary_chunks = _chunk_summary_for_gcs(summary, OKF_SUMMARY_CHUNK_SIZE)
+    if summary_chunks is None:
+      return (
+          "Invalid summary: Summary contains a >200-byte span without letters"
+          " or digits and cannot be split into valid GCS Object Context"
+          " chunks."
+      )
+
+  if not created_at:
+    created_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+  else:
+    created_at_err = _validate_gcs_context_value(created_at, "created_at")
+    if created_at_err:
+      return created_at_err
+    if len(created_at.encode("utf-8")) > GCS_CONTEXT_MAX_VALUE_BYTES:
+      return (
+          "Invalid created_at: Exceeds GCS value limit of"
+          f" {GCS_CONTEXT_MAX_VALUE_BYTES} bytes."
+      )
 
   if not isinstance(regions, list):
     return (
@@ -723,9 +831,6 @@ def write_okf(
     prev_end_byte = end_byte
     prev_reg_id = reg_id
 
-  if not created_at:
-    created_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
-
   # Construct OKF Object Context map
   context_map: dict[str, str] = {
       "okf.v": "1.0",
@@ -742,13 +847,11 @@ def write_okf(
     val_json = json.dumps(reg_dict, separators=(",", ":"))
     return base64.urlsafe_b64encode(val_json.encode("utf-8")).decode("utf-8")
 
-  # Store summary (single key if <= GCS_CONTEXT_SAFE_VALUE_LIMIT chars,
-  # or chunked if longer)
-  summary_bytes = summary.encode("utf-8")
-  if len(summary_bytes) <= GCS_CONTEXT_SAFE_VALUE_LIMIT:
+  # Store summary (single key if <= GCS_CONTEXT_SAFE_VALUE_LIMIT bytes,
+  # or chunked on alphanumeric boundaries if longer)
+  if summary_chunks is None:
     context_map["okf.sum"] = summary
   else:
-    summary_chunks = _chunk_utf8_bytes(summary_bytes, OKF_SUMMARY_CHUNK_SIZE)
     context_map["okf.sum_chunks"] = str(len(summary_chunks))
     for i, s_chunk in enumerate(summary_chunks):
       context_map[f"okf.sum.{i:03d}"] = s_chunk

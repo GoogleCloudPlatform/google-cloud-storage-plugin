@@ -217,9 +217,8 @@ NOT guess a project, and do NOT retry the operation through `gcloud storage`,
 
 Retrieves the Tier 0 summary of the GCS object from its Object Context.
 
--   **Args**:
-    -   `gs_uri`: Target GCS URI (e.g.,
-        `'gs://my-bucket/documents/report.pdf'`).
+-   **Args**: `gs_uri` (target GCS URI, e.g.,
+    `'gs://my-bucket/documents/report.pdf'`).
 -   **Returns**:
     -   High-level summary string if OKF Object Context exists.
     -   Stale index warning if the underlying object generation changed.
@@ -231,8 +230,7 @@ Retrieves the Tier 0 summary of the GCS object from its Object Context.
 Retrieves the Tier 1/2 Table of Contents (region index) stored in the object's
 Object Context.
 
--   **Args**:
-    -   `gs_uri`: Target GCS URI.
+-   **Args**: `gs_uri` (target GCS URI).
 -   **Returns**:
     -   Formatted JSON string containing a list of region descriptors, each
         with:
@@ -249,10 +247,8 @@ Object Context.
 
 Fetches a specific byte-range slice from the GCS object payload.
 
--   **Args**:
-    -   `gs_uri`: Target GCS URI.
-    -   `start_byte`: 0-indexed start offset (inclusive).
-    -   `end_byte`: 0-indexed end offset (inclusive).
+-   **Args**: `gs_uri` (target GCS URI), `start_byte` (0-indexed inclusive start
+    offset), `end_byte` (0-indexed inclusive end offset).
 -   **Returns**:
     -   UTF-8 decoded text slice (or Base64-encoded string for binary data).
     -   Stale index warning string if the underlying object generation changed
@@ -263,15 +259,14 @@ Fetches a specific byte-range slice from the GCS object payload.
 Writes an OKF manifest into GCS Object Context (`okf.r.000`, `okf.sum`, etc.).
 
 -   **Args**:
-
     -   `gs_uri`: Target GCS URI.
-
-    -   `summary`: High-level overview string of the object.
-
+    -   `summary`: High-level overview string of the object. Must be non-empty,
+        start with a letter or digit, and omit single quotes, double quotes,
+        backslashes, and forward slashes (GCS Object Context value rule; e.g.,
+        write `application octet-stream` or `p50 and p99`).
     -   `regions_json`: JSON array string of region descriptors (e.g., `'[{"id":
         "r0", "start_byte": 0, "end_byte": 1024, "title": "Introduction",
         "keywords": ["overview"]}]'`).
-
         -   **Grounded Byte Boundaries**: Offsets MUST be 0-indexed integers
             satisfying `0 <= start_byte <= end_byte < object_size`. Regions MUST
             be listed in ascending order by `start_byte` and cannot overlap (for
@@ -279,12 +274,11 @@ Writes an OKF manifest into GCS Object Context (`okf.r.000`, `okf.sum`, etc.).
             `end_byte + 1`). `write_okf` strictly validates against actual
             object size and rejects inverted, negative, out-of-order,
             overlapping, or out-of-bounds byte ranges.
-
     -   `created_at`: (Optional) ISO 8601 timestamp string (defaults to current
         UTC time).
 -   **Returns**:
-
-    -   Success message or error message if Object Context capacity is exceeded.
+    -   Success message or error message if Object Context validation or
+        capacity limits fail.
 
 --------------------------------------------------------------------------------
 

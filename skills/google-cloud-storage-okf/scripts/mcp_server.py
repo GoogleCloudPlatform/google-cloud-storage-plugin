@@ -96,15 +96,17 @@ def write_okf(
 
   Args:
     gs_uri: The target GCS object URI (e.g. 'gs://bucket_name/object_name').
-    summary: High-level overview text string for the object.
+    summary: High-level overview text string for the object. Must be non-empty,
+      start with a letter or digit, and omit single quotes, double quotes,
+      backslashes, and forward slashes.
     regions_json: Valid JSON array string of region objects, e.g.: '[{"id":
       "r1", "start_byte": 0, "end_byte": 100, "title": "Intro", "keywords":
       ["a"]}]'
     created_at: Optional ISO 8601 timestamp string.
 
   Returns:
-    Success status message or error message if object context capacity is
-    exceeded.
+    Success status message or error message if validation fails or object
+    context capacity is exceeded.
   """
   try:
     regions = json.loads(regions_json)
