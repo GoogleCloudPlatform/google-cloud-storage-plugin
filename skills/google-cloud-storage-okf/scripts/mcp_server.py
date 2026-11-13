@@ -80,7 +80,9 @@ def expand(gs_uri: str, start_byte: int, end_byte: int) -> str:
     end_byte: 0-indexed ending byte offset (inclusive).
 
   Returns:
-    Decoded text content of the requested slice (or Base64 for binary data).
+    Decoded UTF-8 text content of the requested slice (trimming any split
+    boundary UTF-8 bytes) or Base64 prefixed with
+    '[Base64-encoded binary data]' for binary data.
   """
   return core.expand(gs_uri, start_byte, end_byte)
 

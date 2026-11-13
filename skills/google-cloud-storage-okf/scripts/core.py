@@ -68,6 +68,7 @@ stored in GCS metadata, allowing LLMs to perform targeted byte-range reads
 """
 
 import base64
+import codecs
 from collections.abc import Mapping, Sequence
 import datetime
 import functools
@@ -159,6 +160,7 @@ OKF_SUMMARY_CHUNK_SIZE = 200
 OKF_KEYWORD_TRUNCATION_LIMIT = 3
 OKF_TITLE_TRUNCATION_LIMIT = 50
 STALE_INDEX_PREFIX = "Stale OKF index:"
+BINARY_BASE64_PREFIX = "[Base64-encoded binary data]\n"
 # Leading bytes of a gzip stream. Regions indexed before gzip was removed are
 # still gzip-compressed, so `list_regions` decompresses them for compatibility.
 _GZIP_MAGIC = b"\x1f\x8b"
@@ -537,6 +539,60 @@ def validate_regions_or_error(
   return regions, None
 
 
+def _is_valid_utf8_prefix(rem: bytes) -> bool:
+  """Returns whether `rem` (0-3 undecoded bytes) is a valid UTF-8 prefix."""
+  if len(rem) < 2:
+    return True
+  b0, b1 = rem[0], rem[1]
+  if b0 == 0xE0:
+    b1_ok = 0xA0 <= b1 <= 0xBF
+  elif b0 == 0xED:
+    b1_ok = 0x80 <= b1 <= 0x9F
+  elif b0 == 0xF0:
+    b1_ok = 0x90 <= b1 <= 0xBF
+  elif b0 == 0xF4:
+    b1_ok = 0x80 <= b1 <= 0x8F
+  else:
+    b1_ok = 0x80 <= b1 <= 0xBF
+  return b1_ok and (len(rem) < 3 or 0x80 <= rem[2] <= 0xBF)
+
+
+def decode_slice_bytes(
+    content_bytes: bytes, *, trim_leading: bool = False
+) -> str:
+  """Decodes a byte slice as UTF-8, trimming split boundary codepoints.
+
+  Args:
+    content_bytes: Raw slice bytes read from the object.
+    trim_leading: Whether to trim up to 3 leading UTF-8 continuation bytes (used
+      when `start_byte > 0` may land mid-codepoint).
+
+  Returns:
+    Decoded UTF-8 text (trimming incomplete boundary multi-byte sequences), or
+    Base64 prefixed with `BINARY_BASE64_PREFIX` for binary slices.
+  """
+  if not content_bytes:
+    return ""
+  start = 0
+  if trim_leading:
+    while (
+        start < 3
+        and start < len(content_bytes)
+        and (content_bytes[start] & 0xC0) == 0x80
+    ):
+      start += 1
+  if start < len(content_bytes):
+    try:
+      decoder = codecs.getincrementaldecoder("utf-8")(errors="strict")
+      decoded = decoder.decode(content_bytes[start:], final=False)
+      if decoded and _is_valid_utf8_prefix(decoder.getstate()[0]):
+        return decoded
+    except UnicodeDecodeError:
+      pass
+  encoded_b64 = base64.b64encode(content_bytes).decode("ascii")
+  return f"{BINARY_BASE64_PREFIX}{encoded_b64}"
+
+
 def _get_blob_contexts(blob: storage.Blob) -> dict[str, str]:
   """Extracts existing object contexts dictionary from a GCS blob."""
   contexts = getattr(blob, "contexts", None)
@@ -757,8 +813,8 @@ def expand(gs_uri: str, start_byte: int, end_byte: int) -> str:
     end_byte: The 0-indexed ending byte offset (inclusive).
 
   Returns:
-    The decoded string content or base64 fallback, or a staleness warning if
-    the object generation changed since OKF index creation.
+    The decoded string content or labeled Base64 fallback for binary data, or a
+    staleness warning if the object generation changed since OKF index creation.
   """
   if start_byte < 0:
     return f"Invalid byte range: start_byte ({start_byte}) must be >= 0."
@@ -787,11 +843,7 @@ def expand(gs_uri: str, start_byte: int, end_byte: int) -> str:
         f" {str(e)}"
     )
 
-  try:
-    return content_bytes.decode("utf-8")
-  except UnicodeDecodeError:
-    # Fallback to returning base64 if it's non-text (video/audio snippet)
-    return base64.b64encode(content_bytes).decode("utf-8")
+  return decode_slice_bytes(content_bytes, trim_leading=start_byte > 0)
 
 
 def write_okf(

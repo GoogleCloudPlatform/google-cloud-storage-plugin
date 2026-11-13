@@ -250,7 +250,8 @@ Fetches a specific byte-range slice from the GCS object payload.
 -   **Args**: `gs_uri` (target GCS URI), `start_byte` (0-indexed inclusive start
     offset), `end_byte` (0-indexed inclusive end offset).
 -   **Returns**:
-    -   UTF-8 decoded text slice (or Base64-encoded string for binary data).
+    -   UTF-8 decoded text slice (trimming any split boundary UTF-8 bytes), or
+        Base64 prefixed with `[Base64-encoded binary data]` for binary data.
     -   Stale index warning string if the underlying object generation changed
         since OKF index creation.
 
