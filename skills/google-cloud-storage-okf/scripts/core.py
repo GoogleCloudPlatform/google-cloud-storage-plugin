@@ -74,6 +74,7 @@ import datetime
 import functools
 import gzip
 import importlib
+import io
 import json
 import os
 from typing import Any
@@ -166,6 +167,10 @@ BINARY_BASE64_PREFIX = "[Base64-encoded binary data]\n"
 _GZIP_MAGIC = b"\x1f\x8b"
 _MAX_DECODED_REGION_BYTES = 8 * 1024
 _FORBIDDEN_CONTEXT_CHARS = frozenset({"'", '"', "\\", "/"})
+_GZIP_RAW_READ_CHUNK_BYTES = 256 * 1024
+_MAX_GZIP_RAW_SCAN_BYTES = 64 * 1024 * 1024
+_MAX_GZIP_DECOMPRESSED_SCAN_BYTES = 256 * 1024 * 1024
+_MAX_GZIP_SLICE_BYTES = 16 * 1024 * 1024
 
 
 def _check_staleness_warning(
@@ -593,6 +598,180 @@ def decode_slice_bytes(
   return f"{BINARY_BASE64_PREFIX}{encoded_b64}"
 
 
+def _get_blob_int_size(blob: storage.Blob) -> int | None:
+  """Returns `blob.size` when it is an integer, or `None` if unavailable."""
+  raw_size = getattr(blob, "size", None)
+  if isinstance(raw_size, int) and not isinstance(raw_size, bool):
+    return raw_size
+  return None
+
+
+def is_gzip_content_encoded(blob: storage.Blob) -> bool:
+  """Returns whether `blob` has HTTP `Content-Encoding: gzip` metadata."""
+  encoding = getattr(blob, "content_encoding", None)
+  if not isinstance(encoding, str):
+    return False
+  tokens = [tok.strip().lower() for tok in encoding.split(",") if tok.strip()]
+  return tokens in (["gzip"], ["x-gzip"])
+
+
+class _RawGzipBlobStream(io.RawIOBase):
+  """Streams raw compressed chunks from a GCS `Blob` up to scan budget."""
+
+  def __init__(self, blob: storage.Blob, compressed_size: int | None):
+    self._blob = blob
+    self._size = compressed_size
+    self._buf: bytes | None = None
+    self._offset = 0
+
+  def readable(self) -> bool:
+    return True
+
+  def readinto(self, b: Any) -> int:
+    if not b:
+      return 0
+    if self._size is None:
+      try:
+        raw_all = self._blob.download_as_bytes(
+            start=0, end=_MAX_GZIP_RAW_SCAN_BYTES, raw_download=True
+        )
+      except gcs_exceptions.RequestRangeNotSatisfiable:
+        raw_all = b""
+      if len(raw_all) > _MAX_GZIP_RAW_SCAN_BYTES:
+        raise ValueError(
+            f"Compressed payload exceeds {_MAX_GZIP_RAW_SCAN_BYTES}-byte scan"
+            " limit for Content-Encoding: gzip."
+        )
+      self._buf = raw_all
+      self._size = len(raw_all)
+    if self._offset >= self._size:
+      return 0
+    if self._offset >= _MAX_GZIP_RAW_SCAN_BYTES:
+      raise ValueError(
+          f"Compressed payload exceeds {_MAX_GZIP_RAW_SCAN_BYTES}-byte scan"
+          " limit for Content-Encoding: gzip."
+      )
+    if self._buf is not None:
+      chunk = self._buf[self._offset : self._offset + len(b)]
+    else:
+      end = min(
+          self._offset + len(b) - 1,
+          self._size - 1,
+          _MAX_GZIP_RAW_SCAN_BYTES,
+      )
+      expected_max = end - self._offset + 1
+      chunk = self._blob.download_as_bytes(
+          start=self._offset, end=end, raw_download=True
+      )
+      if self._offset + len(chunk) > _MAX_GZIP_RAW_SCAN_BYTES:
+        raise ValueError(
+            f"Compressed payload exceeds {_MAX_GZIP_RAW_SCAN_BYTES}-byte scan"
+            " limit for Content-Encoding: gzip."
+        )
+      if len(chunk) > expected_max:
+        if self._offset != 0:
+          raise ValueError(
+              "Unexpected oversized ranged read for Content-Encoding: gzip."
+          )
+        self._buf = chunk
+        self._size = len(chunk)
+        chunk = chunk[: len(b)]
+    if not chunk:
+      self._size = self._offset
+      return 0
+    n = len(chunk)
+    b[:n] = chunk
+    self._offset += n
+    return n
+
+
+def _get_gzip_decompressed_size(blob: storage.Blob) -> int:
+  """Streams a `Content-Encoding: gzip` blob to compute decompressed size."""
+  compressed_size = _get_blob_int_size(blob)
+  if compressed_size == 0:
+    return 0
+  if compressed_size is not None and compressed_size > _MAX_GZIP_RAW_SCAN_BYTES:
+    raise ValueError(
+        f"Compressed payload exceeds {_MAX_GZIP_RAW_SCAN_BYTES}-byte scan"
+        " limit for Content-Encoding: gzip."
+    )
+  buffered = io.BufferedReader(
+      _RawGzipBlobStream(blob, compressed_size),
+      buffer_size=_GZIP_RAW_READ_CHUNK_BYTES,
+  )
+  total = 0
+  with gzip.GzipFile(fileobj=buffered, mode="rb") as gz:
+    while chunk := gz.read(_GZIP_RAW_READ_CHUNK_BYTES):
+      total += len(chunk)
+      if total > _MAX_GZIP_DECOMPRESSED_SCAN_BYTES:
+        raise ValueError(
+            "Decompressed payload exceeds"
+            f" {_MAX_GZIP_DECOMPRESSED_SCAN_BYTES}-byte scan limit for"
+            " Content-Encoding: gzip."
+        )
+  return total
+
+
+def read_blob_slice_bytes(
+    blob: storage.Blob, start_byte: int, end_byte: int
+) -> bytes:
+  """Reads `[start_byte, end_byte]` from `blob`, decompressing gzip if set.
+
+  Args:
+    blob: Target GCS blob (`Content-Encoding` already populated if present).
+    start_byte: 0-indexed inclusive start offset (decompressed bytes for
+      `gzip`/`x-gzip` blobs; stored bytes otherwise). Must be >= 0.
+    end_byte: 0-indexed inclusive end offset (>= `start_byte`). If `start_byte`
+      is within the payload and `end_byte` exceeds EOF, returns bytes to EOF.
+
+  Returns:
+    Slice bytes (up to `end_byte - start_byte + 1` bytes, or `b""` when
+    reading from offset 0 of an empty gzip stream).
+
+  Raises:
+    ValueError: If a gzip slice or stream exceeds size/scan caps, or
+      `start_byte` is past the decompressed gzip payload (> 0 if empty).
+  """
+  if not is_gzip_content_encoded(blob):
+    return blob.download_as_bytes(start=start_byte, end=end_byte)
+
+  want = end_byte - start_byte + 1
+  if want > _MAX_GZIP_SLICE_BYTES:
+    raise ValueError(
+        f"Requested slice ({want} bytes) exceeds {_MAX_GZIP_SLICE_BYTES}-byte"
+        " limit for Content-Encoding: gzip."
+    )
+  if start_byte >= _MAX_GZIP_DECOMPRESSED_SCAN_BYTES:
+    raise ValueError(
+        f"start_byte ({start_byte}) exceeds"
+        f" {_MAX_GZIP_DECOMPRESSED_SCAN_BYTES}-byte scan limit for"
+        " Content-Encoding: gzip."
+    )
+  compressed_size = _get_blob_int_size(blob)
+  if compressed_size == 0:
+    if start_byte > 0:
+      raise ValueError(
+          f"start_byte ({start_byte}) exceeds decompressed object size of 0"
+          " bytes (valid range: [0, 0])."
+      )
+    return b""
+
+  buffered = io.BufferedReader(
+      _RawGzipBlobStream(blob, compressed_size),
+      buffer_size=_GZIP_RAW_READ_CHUNK_BYTES,
+  )
+  with gzip.GzipFile(fileobj=buffered, mode="rb") as gz:
+    pos = gz.seek(start_byte) if start_byte > 0 else 0
+    slice_bytes = gz.read(want)
+  if not slice_bytes and (start_byte > 0 or pos > 0):
+    max_valid = max(0, pos - 1)
+    raise ValueError(
+        f"start_byte ({start_byte}) exceeds decompressed object size of"
+        f" {pos} bytes (valid range: [0, {max_valid}])."
+    )
+  return slice_bytes
+
+
 def _get_blob_contexts(blob: storage.Blob) -> dict[str, str]:
   """Extracts existing object contexts dictionary from a GCS blob."""
   contexts = getattr(blob, "contexts", None)
@@ -662,6 +841,9 @@ def _format_missing_okf_error(
   content_type = getattr(blob, "content_type", None)
   if isinstance(content_type, str):
     attributes["content_type"] = content_type
+  content_encoding = getattr(blob, "content_encoding", None)
+  if isinstance(content_encoding, str) and content_encoding.strip():
+    attributes["content_encoding"] = content_encoding.strip()
   generation = getattr(blob, "generation", None)
   if isinstance(generation, (int, str)):
     attributes["generation"] = generation
@@ -836,7 +1018,7 @@ def expand(gs_uri: str, start_byte: int, end_byte: int) -> str:
     return stale_warning
 
   try:
-    content_bytes = blob.download_as_bytes(start=start_byte, end=end_byte)
+    content_bytes = read_blob_slice_bytes(blob, start_byte, end_byte)
   except Exception as e:  # pylint: disable=broad-exception-caught
     return (
         f"Error reading byte range [{start_byte}:{end_byte}] from '{gs_uri}':"
@@ -926,13 +1108,11 @@ def write_okf(
   if err or not blob:
     return err or f"Object '{gs_uri}' not found."
 
-  raw_size = getattr(blob, "size", None)
-  object_size = (
-      raw_size
-      if isinstance(raw_size, int) and not isinstance(raw_size, bool)
-      else None
-  )
-  if object_size is not None and object_size == 0 and regions:
+  initial_generation = getattr(blob, "generation", None)
+  initial_metageneration = getattr(blob, "metageneration", None)
+
+  object_size = _get_blob_int_size(blob)
+  if object_size == 0 and regions:
     return (
         f"Cannot create regions for empty object '{gs_uri}' (size is 0 bytes)."
     )
@@ -966,6 +1146,20 @@ def write_okf(
           f"Invalid region '{reg_id}': start_byte {start_byte} > end_byte"
           f" {end_byte} (inverted byte range)."
       )
+
+    if i == 0 and is_gzip_content_encoded(blob):
+      try:
+        object_size = _get_gzip_decompressed_size(blob)
+      except Exception as e:  # pylint: disable=broad-exception-caught
+        return (
+            f"Error inspecting Content-Encoding: gzip payload for '{gs_uri}':"
+            f" {e}"
+        )
+      if object_size == 0:
+        return (
+            f"Cannot create regions for empty object '{gs_uri}' (size is 0"
+            " bytes)."
+        )
 
     if object_size is not None:
       if start_byte >= object_size:
@@ -1002,14 +1196,13 @@ def write_okf(
     prev_start_byte = start_byte
     prev_end_byte = end_byte
     prev_reg_id = reg_id
-
   # Construct OKF Object Context map
   context_map: dict[str, str] = {
       "okf.v": "1.0",
       "okf.created_at": created_at,
   }
-  if getattr(blob, "generation", None) is not None:
-    context_map["okf.src_generation"] = str(blob.generation)
+  if initial_generation is not None:
+    context_map["okf.src_generation"] = str(initial_generation)
 
   # Helper function to encode a region dictionary to base64(json)
   # Uses urlsafe_b64encode because GCS Object Context validation forbids
@@ -1174,10 +1367,10 @@ def write_okf(
         blob._changes.add("contexts")  # pylint: disable=protected-access
 
     patch_kwargs: dict[str, Any] = {}
-    if getattr(blob, "generation", None) is not None:
-      patch_kwargs["if_generation_match"] = blob.generation
-    if getattr(blob, "metageneration", None) is not None:
-      patch_kwargs["if_metageneration_match"] = blob.metageneration
+    if initial_generation is not None:
+      patch_kwargs["if_generation_match"] = initial_generation
+    if initial_metageneration is not None:
+      patch_kwargs["if_metageneration_match"] = initial_metageneration
     blob.patch(**patch_kwargs)
   except gcs_exceptions.PreconditionFailed as e:
     msg = e.message if hasattr(e, "message") else str(e)

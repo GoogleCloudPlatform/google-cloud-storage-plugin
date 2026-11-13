@@ -223,7 +223,8 @@ Retrieves the Tier 0 summary of the GCS object from its Object Context.
     -   High-level summary string if OKF Object Context exists.
     -   Stale index warning if the underlying object generation changed.
     -   Diagnostic `OKF_NOT_FOUND` error detailing remaining Object Context
-        capacity and pre-existing Object Context entries.
+        capacity, pre-existing Object Context entries, and Object Attributes
+        (including `content_encoding` when set).
 
 ### 2. List Regions Tool (`list_regions`)
 
@@ -248,7 +249,9 @@ Object Context.
 Fetches a specific byte-range slice from the GCS object payload.
 
 -   **Args**: `gs_uri` (target GCS URI), `start_byte` (0-indexed inclusive start
-    offset), `end_byte` (0-indexed inclusive end offset).
+    offset), `end_byte` (0-indexed inclusive end offset; for `content_encoding`
+    `"gzip"` or `"x-gzip"` objects, `size` is stored compressed bytes while
+    `expand` and `write_okf` use decompressed byte offsets).
 -   **Returns**:
     -   UTF-8 decoded text slice (trimming any split boundary UTF-8 bytes), or
         Base64 prefixed with `[Base64-encoded binary data]` for binary data.
@@ -269,12 +272,13 @@ Writes an OKF manifest into GCS Object Context (`okf.r.000`, `okf.sum`, etc.).
         "r0", "start_byte": 0, "end_byte": 1024, "title": "Introduction",
         "keywords": ["overview"]}]'`).
         -   **Grounded Byte Boundaries**: Offsets MUST be 0-indexed integers
-            satisfying `0 <= start_byte <= end_byte < object_size`. Regions MUST
-            be listed in ascending order by `start_byte` and cannot overlap (for
-            inclusive byte ranges, next `start_byte` must be at least previous
-            `end_byte + 1`). `write_okf` strictly validates against actual
-            object size and rejects inverted, negative, out-of-order,
-            overlapping, or out-of-bounds byte ranges.
+            satisfying `0 <= start_byte <= end_byte < object_size` (using
+            decompressed size when `content_encoding` is `"gzip"` or
+            `"x-gzip"`). Regions MUST be listed in ascending order by
+            `start_byte` and cannot overlap
+            (`next start_byte >= previous end_byte + 1`). `write_okf` rejects
+            inverted, negative, out-of-order, overlapping, or out-of-bounds byte
+            ranges.
     -   `created_at`: (Optional) ISO 8601 timestamp string (defaults to current
         UTC time).
 -   **Returns**:
@@ -321,9 +325,14 @@ Object Context** (`custom_contexts`) via `write_okf`. Before scanning an object
 to split it into regions or calling `write_okf`, apply this gate:
 
 -   **Small Objects (`< 20 KB`) on Read Queries**: If the user only asked a
-    read, search, or diagnostic question and `Object Attributes.size < 20480`,
-    do **NOT** generate an OKF index — read the object directly with
-    `expand(gs_uri, 0, size - 1)` and answer the question.
+    read, search, or diagnostic question and `Object Attributes.size < 20480`
+    without `content_encoding` `"gzip"` or `"x-gzip"`, do **NOT** generate an
+    OKF index — read directly with `expand(gs_uri, 0, size - 1)` and answer.
+    When `content_encoding` is `"gzip"` or `"x-gzip"` (`size` is compressed),
+    read `expand(gs_uri, 0, 20479)` first and probe
+    `expand(gs_uri, 20480, 20480)` if EOF is not obvious; if data continues,
+    treat the object as `>= 20 KB` and apply the Confirmation Gate below before
+    scanning or calling `write_okf`.
 -   **When Confirmation Is Required (Ask Once, Then Stop)**: Whenever `peek` or
     `list_regions` returns `OKF_NOT_FOUND` on an object `>= 20 KB` (or returns a
     `Stale OKF index` warning) and the user has **not** already explicitly
@@ -355,32 +364,24 @@ to split it into regions or calling `write_okf`, apply this gate:
 ### Steps to Generate and Commit OKF:
 
 1.  **Leverage Pre-existing Object Context, Custom Metadata & Attributes**:
-
-    -   Inspect the returned `Existing Object Contexts`, `Existing Custom
-        Metadata`, and `Object Attributes` from the diagnostic message.
-    -   Use these rich signals (e.g., `environment`, `category`, `log-type`,
-        `content_type`, `size`) to inform and enrich your generated summary,
-        region titles, and keywords.
-
+    -   Inspect the returned `Existing Object Contexts`,
+        `Existing Custom Metadata`, and `Object Attributes` (`environment`,
+        `category`, `log-type`, `content_type`, `content_encoding`, `size`) to
+        enrich your generated summary, region titles, and keywords.
 2.  **Evaluate Splitting Heuristics**:
-
-    -   **Small Objects (< 20 KB)**: If the entire object easily fits in context
-        and is small, read directly via `expand(gs_uri, 0, size - 1)` or
-        standard tools without forcing OKF indexing (unless the user explicitly
-        asked to generate an OKF index for it).
-    -   **Large/Medium Objects (> 20 KB to multi-GB)**: Segment the object into
+    -   **Small Objects (< 20 KB)**: If decompressed content fits in `< 20 KB`,
+        read directly via `expand(gs_uri, 0, size - 1)` (or
+        `expand(gs_uri, 0, 20479)` + probe `start_byte = 20480` when
+        `content_encoding` is `"gzip"` or `"x-gzip"`) without forcing OKF
+        indexing unless explicitly requested.
+    -   **Large/Medium Objects (>= 20 KB to multi-GB)**: Segment the object into
         semantic, logical regions (e.g., chapters, log phases, data tables,
-        video keyframe intervals) using inclusive byte ranges. This is a
-        critical step, think of it as generating the most useful summary and
-        Table of Contents for the object. If needed, make a couple of detailed
-        plans first on how to split the object. For example, splitting naively
-        by paragraphs on a text document is not great. You want to keep
-        collecting paragraphs together that are semantically related so it
-        surfaces as one semantic region. Look to see what tools you have at your
-        disposal for best semantic splitting -- for example, you may have a PDF
-        parser or even a local small model like Gemma. You split the object once
-        and every agent uses it later on so it is ok to pay a high cost for this
-        splitting.
+        video keyframe intervals) using inclusive byte ranges bounded by
+        `object_size` (decompressed size for `"gzip"`/`"x-gzip"`). Group
+        semantically related paragraphs into cohesive Table of Contents regions
+        rather than splitting naively by paragraph, using available parsers
+        (such as PDF parsers or local models) since the index is written once
+        and reused by all downstream agents.
     -   **Homogeneous Logs / Structured Dumps**: Split based on timestamp
         boundaries or major processing milestones.
 
