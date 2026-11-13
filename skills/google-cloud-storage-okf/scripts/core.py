@@ -22,9 +22,10 @@ stored in GCS metadata, allowing LLMs to perform targeted byte-range reads
      (keywords, title length, id) *before* re-encoding, strictly guaranteeing
      that the resulting Base64 string is <= 256 bytes while remaining a 100%
      valid JSON object.
-   - **Failure Domain Isolation**: If a single region key fails to write or
-     becomes corrupted, the rest of the OKF index remains valid (avoiding
-     multi-key manifest splicing risks).
+   - **Per-Key Encoding & Integrity Validation**: Encoding each region in its
+     own context key avoids multi-key JSON splicing, while any missing or
+     corrupted `okf.r.*` key invalidates the index across read tools until
+     repaired via `write_okf()`.
 
 2. Staleness Detection, GCS Versioning, & Defense-in-Depth Model:
    - **GCS Versioning & Generation Semantics**: In Google Cloud Storage, objects
@@ -76,6 +77,7 @@ import json
 import os
 from typing import Any
 import unicodedata
+import zlib
 
 from google.api_core import client_info
 from google.api_core import exceptions as gcs_exceptions
@@ -160,6 +162,7 @@ STALE_INDEX_PREFIX = "Stale OKF index:"
 # Leading bytes of a gzip stream. Regions indexed before gzip was removed are
 # still gzip-compressed, so `list_regions` decompresses them for compatibility.
 _GZIP_MAGIC = b"\x1f\x8b"
+_MAX_DECODED_REGION_BYTES = 8 * 1024
 _FORBIDDEN_CONTEXT_CHARS = frozenset({"'", '"', "\\", "/"})
 
 
@@ -383,6 +386,157 @@ def _chunk_summary_for_gcs(
   return chunks
 
 
+def _parse_nonneg_ascii_int(value: str) -> int | None:
+  """Returns non-negative integer if `value` is ASCII digits, else `None`."""
+  if value.isascii() and value.isdigit():
+    return int(value)
+  return None
+
+
+def extract_summary_or_error(
+    contexts: Mapping[str, str],
+) -> tuple[str | None, str | None]:
+  """Extracts Tier 0 OKF summary or returns an error reason.
+
+  Args:
+    contexts: Mapping of GCS custom object context keys to string values.
+
+  Returns:
+    `(summary, None)` when a complete, non-empty, conflict-free summary is
+    present, or `(None, error_reason)` when missing, incomplete, or conflicting.
+  """
+  has_direct = "okf.sum" in contexts
+  sum_chunks_str = contexts.get("okf.sum_chunks")
+  sum_chunk_keys = sorted(k for k in contexts if k.startswith("okf.sum."))
+
+  if has_direct:
+    if sum_chunks_str is not None or sum_chunk_keys:
+      return (
+          None,
+          "Incomplete chunked summary: Conflicting okf.sum and chunked keys",
+      )
+    direct_summary = contexts["okf.sum"]
+    if direct_summary:
+      return direct_summary, None
+    return None, "Manifest summary missing"
+
+  if sum_chunks_str is not None:
+    num_chunks = _parse_nonneg_ascii_int(sum_chunks_str)
+    if num_chunks is not None and 0 < num_chunks <= len(contexts):
+      expected_keys = [f"okf.sum.{i:03d}" for i in range(num_chunks)]
+      if sum_chunk_keys == expected_keys and all(
+          contexts[k] for k in expected_keys
+      ):
+        return "".join(contexts[k] for k in expected_keys), None
+    return (
+        None,
+        (
+            f"Incomplete chunked summary: Expected {sum_chunks_str} chunks, but"
+            " some chunks are missing"
+        ),
+    )
+
+  if sum_chunk_keys:
+    return (
+        None,
+        (
+            "Incomplete chunked summary: Summary chunks present without"
+            " okf.sum_chunks"
+        ),
+    )
+  return None, "Manifest summary missing"
+
+
+def _decode_region_entry(encoded_region: str) -> dict[str, Any]:
+  """Decodes and validates a single Base64 (or legacy Base64+Gzip) region."""
+  clean_b64 = encoded_region.replace("-", "+").replace("_", "/")
+  if padding := len(clean_b64) % 4:
+    clean_b64 += "=" * (4 - padding)
+  decoded_bytes = base64.b64decode(clean_b64)
+  if decoded_bytes.startswith(_GZIP_MAGIC):
+    decoded_bytes = gzip.decompress(decoded_bytes)
+  if len(decoded_bytes) > _MAX_DECODED_REGION_BYTES:
+    raise ValueError("Oversized region payload")
+  reg_obj = json.loads(decoded_bytes.decode("utf-8"))
+  if not isinstance(reg_obj, dict):
+    raise ValueError(
+        f"Expected JSON object for region, got {type(reg_obj).__name__}"
+    )
+  return reg_obj
+
+
+def validate_regions_or_error(
+    contexts: Mapping[str, str],
+) -> tuple[list[dict[str, Any]] | None, str | None]:
+  """Validates and decodes `okf.r.*` region descriptors from `contexts`.
+
+  Args:
+    contexts: Mapping of GCS custom object context keys to string values.
+
+  Returns:
+    `(regions, None)` when all region keys and payloads are valid (with
+    `regions == []` when `okf.region_count` is `"0"`), or `(None, reason)` when
+    the region index is missing (`Detailed navigation index missing`),
+    incomplete (`Incomplete region index: ...`), or corrupted
+    (`Corrupted region index: ...`).
+  """
+  region_count_str = contexts.get("okf.region_count")
+  region_keys = sorted(k for k in contexts if k.startswith("okf.r."))
+
+  if region_count_str is not None:
+    expected_count = _parse_nonneg_ascii_int(region_count_str)
+    if expected_count is None:
+      return (
+          None,
+          (
+              "Corrupted region index: Invalid okf.region_count"
+              f" {region_count_str!r}."
+          ),
+      )
+    expected_keys = (
+        [f"okf.r.{i:03d}" for i in range(expected_count)]
+        if expected_count <= len(contexts)
+        else None
+    )
+    if expected_keys is None or not all(k in contexts for k in expected_keys):
+      return (
+          None,
+          (
+              f"Incomplete region index: Expected {expected_count} regions, but"
+              " one or more region keys are missing"
+          ),
+      )
+    if region_keys != expected_keys:
+      return (
+          None,
+          (
+              "Corrupted region index: Unexpected okf.r.* keys do not match"
+              f" okf.region_count={expected_count}."
+          ),
+      )
+  else:
+    if not region_keys:
+      return None, "Detailed navigation index missing"
+    expected_keys = [f"okf.r.{i:03d}" for i in range(len(region_keys))]
+    if region_keys != expected_keys:
+      return (
+          None,
+          "Corrupted region index: Non-contiguous or malformed okf.r.* keys.",
+      )
+
+  regions: list[dict[str, Any]] = []
+  for k in region_keys:
+    try:
+      region = _decode_region_entry(contexts[k])
+    except (ValueError, OSError, EOFError, zlib.error, RecursionError) as e:
+      return (
+          None,
+          f"Corrupted region index: Failed to decode region '{k}': {e}",
+      )
+    regions.append(region)
+  return regions, None
+
+
 def _get_blob_contexts(blob: storage.Blob) -> dict[str, str]:
   """Extracts existing object contexts dictionary from a GCS blob."""
   contexts = getattr(blob, "contexts", None)
@@ -535,28 +689,15 @@ def peek(gs_uri: str) -> str:
   if stale_warning:
     return stale_warning
 
-  # Check direct summary key
-  if "okf.sum" in contexts:
-    return contexts["okf.sum"]
-
-  # Check Object Context chunked summary format
-  sum_chunks_str = contexts.get("okf.sum_chunks")
-  if sum_chunks_str and sum_chunks_str.isdigit():
-    num_chunks = int(sum_chunks_str)
-    # Strict Invariant: All chunks 0..num_chunks-1 must be present.
-    # If any chunk is missing, the summary is incomplete/fractured.
-    if all(f"okf.sum.{i:03d}" in contexts for i in range(num_chunks)):
-      summary = "".join(contexts[f"okf.sum.{i:03d}"] for i in range(num_chunks))
-      if summary:
-        return summary
+  summary, err_reason = extract_summary_or_error(contexts)
+  if summary is None:
     return _format_missing_okf_error(
-        gs_uri,
-        blob,
-        f"Incomplete chunked summary: Expected {num_chunks} chunks, but some"
-        " chunks are missing",
+        gs_uri, blob, err_reason or "Manifest summary missing"
     )
-
-  return _format_missing_okf_error(gs_uri, blob, "Manifest summary missing")
+  _, region_err = validate_regions_or_error(contexts)
+  if region_err is not None:
+    return _format_missing_okf_error(gs_uri, blob, region_err)
+  return summary
 
 
 def list_regions(gs_uri: str) -> str:
@@ -581,46 +722,25 @@ def list_regions(gs_uri: str) -> str:
   if not contexts:
     return _format_missing_okf_error(gs_uri, blob, "No object contexts found")
 
-  # Strict Invariant: Check expected region count and contiguous region sequence
-  region_count_str = contexts.get("okf.region_count")
-  region_keys = sorted([k for k in contexts if k.startswith("okf.r.")])
-
-  if region_count_str and region_count_str.isdigit():
-    expected_count = int(region_count_str)
-    expected_keys = [f"okf.r.{i:03d}" for i in range(expected_count)]
-    if not all(k in contexts for k in expected_keys):
-      return _format_missing_okf_error(
-          gs_uri,
-          blob,
-          f"Incomplete region index: Expected {expected_count} regions, but one"
-          " or more region keys are missing",
-      )
-    region_keys = expected_keys
-  elif not region_keys:
+  has_region_keys = any(k.startswith("okf.r.") for k in contexts)
+  if "okf.region_count" not in contexts and not has_region_keys:
     return _format_missing_okf_error(
         gs_uri, blob, "Detailed navigation index missing"
     )
 
-  regions = []
-  for k in region_keys:
-    val_b64 = contexts[k]
-    try:
-      clean_b64 = val_b64.replace("-", "+").replace("_", "/")
-      padding = len(clean_b64) % 4
-      if padding:
-        clean_b64 += "=" * (4 - padding)
-      decoded_bytes = base64.b64decode(clean_b64)
-      if decoded_bytes.startswith(_GZIP_MAGIC):
-        decoded_bytes = gzip.decompress(decoded_bytes)
-      reg_obj = json.loads(decoded_bytes.decode("utf-8"))
-      regions.append(reg_obj)
-    except Exception as e:  # pylint: disable=broad-exception-caught
-      return json.dumps({
-          "error": (
-              f"Corrupted region index: Failed to decode region '{k}': {str(e)}"
-          ),
-          "regions": [],
-      })
+  summary, summary_err = extract_summary_or_error(contexts)
+  if summary is None:
+    return _format_missing_okf_error(
+        gs_uri, blob, summary_err or "Manifest summary missing"
+    )
+
+  regions, region_err = validate_regions_or_error(contexts)
+  if region_err is not None or regions is None:
+    if region_err and region_err.startswith("Corrupted region index:"):
+      return json.dumps({"error": region_err, "regions": []})
+    return _format_missing_okf_error(
+        gs_uri, blob, region_err or "Detailed navigation index missing"
+    )
   return json.dumps(regions, indent=2)
 
 
