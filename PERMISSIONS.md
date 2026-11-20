@@ -1,18 +1,21 @@
 # GCS Plugin Permissions Guide
 
 This guide documents the Google Cloud IAM permissions used by the skills in this
-plugin. The scripts bundled with the skills are **read-only**: they never mutate
-your resources. A skill may still propose a change, such as creating a bucket
-with gcloud or Terraform, which runs only once you approve it. More skills (and
-their permission requirements) will be added here over time.
+plugin. Assessment helper scripts bundled with the skills are **read-only**:
+they never mutate your resources. A skill may still propose a change, such as
+creating a bucket with gcloud or Terraform, which runs only once you approve it.
+More skills (and their permission requirements) will be added here over time.
 
 > [!IMPORTANT]
 > The plugin's
-> [Cloud Storage MCP server](./README.md#cloud-storage-mcp-server) is **not**
-> read-only. Its tools can create, overwrite, and delete buckets and objects, so
-> it needs `roles/storage.objectAdmin` (copy, move, delete objects) or
-> `roles/storage.admin` (create, delete buckets) for those operations. Grant
-> only `roles/storage.objectViewer` to keep it read-only.
+> [Cloud Storage MCP server](./README.md#cloud-storage-mcp-server) and
+> [Cloud Storage OKF MCP server](./README.md#cloud-storage-okf-mcp-server)
+> include write tools. The Cloud Storage MCP server can create, overwrite, and
+> delete buckets and objects (`roles/storage.objectAdmin` or
+> `roles/storage.admin`), while the OKF MCP server's `write_okf` tool writes
+> non-destructive GCS Object Context metadata after user approval
+> (`roles/storage.objectUser` or `roles/storage.objectAdmin`). Grant only
+> `roles/storage.objectViewer` to keep both MCP servers strictly read-only.
 
 ## GCS Security Assessment Skill
 

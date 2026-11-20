@@ -123,6 +123,10 @@ npx skills add GoogleCloudPlatform/google-cloud-storage-plugin --skill google-cl
     unstructured or semi-structured objects (PDFs, logs, JSON/CSV dumps, media,
     large documents) in GCS using the Open Knowledge Format (OKF) and Model
     Context Protocol (MCP).
+-   [**Google Cloud Storage Bucket-Level OKF**](./skills/google-cloud-storage-okf-bucket/)
+    — Bucket- and prefix-level discovery, OKF health inventory, open-ended
+    cross-object triage, and selective batch indexing in GCS using inline Object
+    Context aggregation (`peek_bucket`) and 4-tier progressive disclosure.
 
 ## Cloud Storage MCP Server
 
@@ -192,17 +196,26 @@ not on your `PATH`.
 ### Cloud Storage OKF MCP Server
 
 Installing the plugin also registers a second local server,
-`google-cloud-storage-okf`, which serves the `peek`, `list_regions`, `expand`,
-and `write_okf` tools used by the
-[Google Cloud Storage OKF skill](./skills/google-cloud-storage-okf/). It is a
-Python script bundled with the skill and launched through
+`google-cloud-storage-okf`
+(`skills/google-cloud-storage-okf-bucket/scripts/mcp_server.py`), which serves
+all five OKF tools (`peek_bucket`, `peek`, `list_regions`, `expand`, and
+`write_okf`) used by both the
+[Google Cloud Storage OKF](./skills/google-cloud-storage-okf/) and
+[Google Cloud Storage Bucket-Level OKF](./skills/google-cloud-storage-okf-bucket/)
+skills. (For standalone single-skill installs, each skill directory also bundles
+its own `scripts/mcp_server.py`.) The server is a Python script launched through
 [`uv`](https://docs.astral.sh/uv/), which installs its dependencies (`mcp`,
 `google-cloud-storage`) into an isolated environment on first start, so there is
 nothing to `pip install`, but `uv` must be installed.
 
 It uses the same Application Default Credentials and `CLOUD_STORAGE_PROJECT`
-setting as the Toolbox server, and needs `storage.objects.get` to read objects
-and `storage.objects.update` to write OKF indices.
+setting as the Toolbox server. Read-only discovery and slice tools
+(`peek_bucket`, `peek`, `list_regions`, `expand`) need `storage.objects.list`
+and `storage.objects.get` (`roles/storage.objectViewer`), while writing OKF
+indices (`write_okf`) additionally needs `storage.objects.update`,
+`storage.objects.createContext`, `storage.objects.updateContext`, and
+`storage.objects.deleteContext` (`roles/storage.objectUser` or
+`roles/storage.objectAdmin`).
 
 If your agent reports `spawn uv ENOENT`, `uv` is not installed or not on your
 `PATH`.
@@ -307,6 +320,12 @@ language, right from your coding agent:
 
 ### Search and navigate large objects with Open Knowledge Format (OKF)
 
+*   **Bucket-wide outage triage:** "Search gs://my-bucket/logs/2026-08/ to find
+    which service log contains the database connection pool crash and extract
+    the root cause without downloading unrelated files"
+*   **Bucket OKF health & batch indexing:** "Audit the OKF index health of
+    gs://analytics-bucket/etl/ and generate or refresh OKF indexes for stale and
+    large unindexed objects"
 *   **Token-efficient search:** "Find the root cause of the outage in the 500MB
     server log gs://my-bucket/logs/incident-2026-08.log without downloading the
     entire file"

@@ -28,7 +28,10 @@ metadata:
 Use the `google-cloud-storage-okf` skill to efficiently navigate, inspect, and
 extract targeted byte ranges from unstructured Google Cloud Storage (`gs://`)
 objects via progressive disclosure, instead of reading or dumping entire files
-into the context window.
+into the context window. For bucket- or prefix-level discovery, health
+inventories, and open-ended cross-object triage (`gs://bucket` or
+`gs://bucket/prefix/`), see the companion `google-cloud-storage-okf-bucket`
+skill.
 
 ## Open Knowledge Format (OKF) in GCS
 

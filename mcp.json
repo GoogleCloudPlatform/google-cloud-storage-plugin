@@ -20,7 +20,7 @@
       "args": [
         "run",
         "--script",
-        "${PLUGIN_ROOT}/skills/google-cloud-storage-okf/scripts/mcp_server.py"
+        "${PLUGIN_ROOT}/skills/google-cloud-storage-okf-bucket/scripts/mcp_server.py"
       ]
     }
   }
